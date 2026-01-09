@@ -37,7 +37,8 @@ build/
 Thumbs.db
 
 # Test vault (for local development)
-test-vault/
+# Ignore root-level test-vault but allow examples/test-vault
+/test-vault/
 
 # Docker
 .docker/
