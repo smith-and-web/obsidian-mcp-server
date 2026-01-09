@@ -23,12 +23,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/joshsmith/obsidian-mcp-server.git"
+    "url": "git+https://github.com/smith-and-web/obsidian-mcp-server.git"
   },
   "bugs": {
-    "url": "https://github.com/joshsmith/obsidian-mcp-server/issues"
+    "url": "https://github.com/smith-and-web/obsidian-mcp-server/issues"
   },
-  "homepage": "https://github.com/joshsmith/obsidian-mcp-server#readme",
+  "homepage": "https://github.com/smith-and-web/obsidian-mcp-server#readme",
   "engines": {
     "node": ">=18.0.0"
   },

@@ -32,7 +32,7 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/joshsmith/obsidian-mcp-server.git
+   git clone https://github.com/smith-and-web/obsidian-mcp-server.git
    cd obsidian-mcp-server
    ```
 
@@ -84,7 +84,7 @@ Add to your Claude Desktop config file:
   "mcpServers": {
     "obsidian": {
       "command": "npx",
-      "args": ["-y", "@anthropic-ai/mcp-client-sse", "http://localhost:3001/sse"]
+      "args": ["-y", "mcp-remote", "http://localhost:3001/sse"]
     }
   }
 }
@@ -96,7 +96,7 @@ Or for a remote server with HTTPS:
   "mcpServers": {
     "obsidian": {
       "command": "npx",
-      "args": ["-y", "@anthropic-ai/mcp-client-sse", "https://your-domain.com/sse"]
+      "args": ["-y", "mcp-remote", "https://your-domain.com/sse"]
     }
   }
 }
@@ -212,12 +212,14 @@ obsidian-mcp-server/
 
 ## Security Considerations
 
-- **No Authentication**: The server has no built-in authentication. Secure access through:
+- **Authentication**: API key authentication is planned but not yet implemented. For now, secure access through:
   - Network-level security (firewall, VPN)
   - Reverse proxy with authentication (NGINX, Traefik)
   - SSL/TLS termination
 - **File Access**: The server has full read/write access to the mounted vault
 - **CORS**: Currently allows all origins. Restrict in production if needed.
+
+> **TODO**: API key authentication will be added in a future release, allowing you to secure the server with a simple bearer token or query parameter.
 
 ## Deployment with NGINX Proxy Manager
 
