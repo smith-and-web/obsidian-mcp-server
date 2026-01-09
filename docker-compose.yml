@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  obsidian-mcp:
+    build: .
+    container_name: obsidian-mcp
+    restart: unless-stopped
+    volumes:
+      # Mount your NAS vault here - update this path
+      - /path/to/nas/mount/vault:/vault:rw
+    ports:
+      - "3001:3000"
+    networks:
+      - nginx
+    environment:
+      - NODE_ENV=production
+      - VAULT_PATH=/vault
+
+networks:
+  nginx:
+    external: true

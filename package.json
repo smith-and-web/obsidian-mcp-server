@@ -1,0 +1,39 @@
+{
+  "name": "obsidian-mcp-server",
+  "version": "1.0.0",
+  "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "obsidian",
+    "mcp",
+    "model-context-protocol",
+    "sse",
+    "vault",
+    "markdown",
+    "notes",
+    "claude",
+    "ai"
+  ],
+  "author": "Josh Smith",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joshsmith/obsidian-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/joshsmith/obsidian-mcp-server/issues"
+  },
+  "homepage": "https://github.com/joshsmith/obsidian-mcp-server#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "express": "^4.18.2"
+  }
+}
