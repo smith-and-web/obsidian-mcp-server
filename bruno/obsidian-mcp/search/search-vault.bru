@@ -1,0 +1,36 @@
+meta {
+  name: Search Vault
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "search-vault",
+      "arguments": {
+        "query": "search term",
+        "directory": "",
+        "searchContent": true,
+        "searchFilenames": true,
+        "caseSensitive": false,
+        "maxResults": 100,
+        "includeContext": true,
+        "contextLines": 2
+      }
+    }
+  }
+}
+
+docs {
+  Full-text search with line numbers and context.
+}

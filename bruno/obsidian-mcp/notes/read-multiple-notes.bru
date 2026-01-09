@@ -1,0 +1,30 @@
+meta {
+  name: Read Multiple Notes
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "read-multiple-notes",
+      "arguments": {
+        "paths": ["test-note.md", "another-note.md"],
+        "frontmatterOnly": false
+      }
+    }
+  }
+}
+
+docs {
+  Read multiple notes in a single request. Much more efficient than multiple read-note calls.
+}

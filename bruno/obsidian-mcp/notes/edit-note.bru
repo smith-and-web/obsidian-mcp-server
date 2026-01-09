@@ -1,0 +1,30 @@
+meta {
+  name: Edit Note
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "edit-note",
+      "arguments": {
+        "path": "test-note.md",
+        "content": "---\ntags:\n  - test\n  - updated\n---\n\n# Test Note\n\nThis note has been updated."
+      }
+    }
+  }
+}
+
+docs {
+  Replace the entire content of an existing note.
+}

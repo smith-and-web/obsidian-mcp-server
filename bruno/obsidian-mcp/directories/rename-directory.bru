@@ -1,0 +1,30 @@
+meta {
+  name: Rename Directory
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "rename-directory",
+      "arguments": {
+        "from": "old-folder",
+        "to": "new-folder"
+      }
+    }
+  }
+}
+
+docs {
+  Rename or move a directory and all its contents.
+}

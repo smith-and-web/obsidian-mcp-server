@@ -1,0 +1,30 @@
+meta {
+  name: List Headings
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "list-headings",
+      "arguments": {
+        "path": "test-note.md",
+        "level": null
+      }
+    }
+  }
+}
+
+docs {
+  List all markdown headings in a note. Set level (1-6) to filter by heading level.
+}

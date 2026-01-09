@@ -1,0 +1,30 @@
+meta {
+  name: Create Note
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "create-note",
+      "arguments": {
+        "path": "test-note.md",
+        "content": "---\ntags:\n  - test\n---\n\n# Test Note\n\nThis is a test note."
+      }
+    }
+  }
+}
+
+docs {
+  Create a new note with the specified content.
+}

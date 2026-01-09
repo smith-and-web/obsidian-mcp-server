@@ -1,0 +1,29 @@
+meta {
+  name: Get Frontmatter
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "get-frontmatter",
+      "arguments": {
+        "path": "test-note.md"
+      }
+    }
+  }
+}
+
+docs {
+  Get the YAML frontmatter from a note as structured JSON.
+}

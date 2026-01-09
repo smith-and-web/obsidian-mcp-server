@@ -1,0 +1,30 @@
+meta {
+  name: Audit Tags
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "audit-tags",
+      "arguments": {
+        "directory": "projects",
+        "requiredTags": ["status", "priority", "type"]
+      }
+    }
+  }
+}
+
+docs {
+  Audit a folder for tag compliance. Returns files missing any of the required tags.
+}

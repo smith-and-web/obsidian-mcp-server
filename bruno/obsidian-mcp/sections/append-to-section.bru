@@ -1,0 +1,31 @@
+meta {
+  name: Append to Section
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "append-to-section",
+      "arguments": {
+        "path": "test-note.md",
+        "heading": "## Notes",
+        "content": "- New bullet point"
+      }
+    }
+  }
+}
+
+docs {
+  Append content to the end of a specific markdown section.
+}

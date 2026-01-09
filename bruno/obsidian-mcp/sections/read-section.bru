@@ -1,0 +1,30 @@
+meta {
+  name: Read Section
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "read-section",
+      "arguments": {
+        "path": "test-note.md",
+        "heading": "## Summary"
+      }
+    }
+  }
+}
+
+docs {
+  Read only the content under a specific markdown heading.
+}

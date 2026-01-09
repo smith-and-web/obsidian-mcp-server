@@ -270,6 +270,66 @@ docker exec obsidian-mcp ls -la /vault
 - Check SSL certificate validity
 - Verify firewall allows the port
 
+## Development
+
+### Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/smith-and-web/obsidian-mcp-server.git
+cd obsidian-mcp-server
+make install
+
+# Run with example vault
+make dev
+
+# Test connection
+make test-connection
+```
+
+### Available Commands
+
+Run `make help` to see all available commands:
+
+```
+Development:
+  make install         Install dependencies
+  make dev             Run server with hot-reload
+  make start           Run server in production mode
+  make test-connection Test server connectivity
+
+Docker:
+  make docker-build    Build Docker image
+  make docker-up       Start Docker container
+  make docker-down     Stop Docker container
+  make docker-logs     View container logs
+  make docker-restart  Restart container
+  make docker-shell    Open shell in container
+```
+
+### API Testing with Bruno
+
+The repository includes a [Bruno](https://www.usebruno.com/) collection for testing all 29 tools.
+
+1. Install Bruno (free, open-source API client)
+2. Open the collection from `./bruno/obsidian-mcp`
+3. Select the `local` or `remote` environment
+4. Run requests to test each tool
+
+The collection is organized by category:
+- `health/` - Server health and tool listing
+- `notes/` - Note CRUD operations
+- `directories/` - Directory operations
+- `frontmatter/` - Frontmatter operations
+- `tags/` - Tag management
+- `search/` - Search and find-replace
+- `links/` - Backlinks and broken links
+- `sections/` - Section-based operations
+
+### Example Vault
+
+An example vault is included in `./examples/test-vault/` for development and testing. It includes sample notes with tags, links, and sections to test all features.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

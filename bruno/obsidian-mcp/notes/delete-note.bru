@@ -1,0 +1,29 @@
+meta {
+  name: Delete Note
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "delete-note",
+      "arguments": {
+        "path": "test-note.md"
+      }
+    }
+  }
+}
+
+docs {
+  Delete a note from the vault.
+}

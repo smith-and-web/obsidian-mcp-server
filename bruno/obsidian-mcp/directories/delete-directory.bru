@@ -1,0 +1,30 @@
+meta {
+  name: Delete Directory
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "delete-directory",
+      "arguments": {
+        "path": "new-folder",
+        "recursive": false
+      }
+    }
+  }
+}
+
+docs {
+  Delete a directory. Set recursive=true to delete non-empty directories.
+}

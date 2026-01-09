@@ -1,0 +1,30 @@
+meta {
+  name: Move Note
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "move-note",
+      "arguments": {
+        "from": "test-note.md",
+        "to": "archive/test-note.md"
+      }
+    }
+  }
+}
+
+docs {
+  Move or rename a note to a new location.
+}

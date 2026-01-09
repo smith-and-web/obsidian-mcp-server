@@ -1,0 +1,31 @@
+meta {
+  name: Remove Tags
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "remove-tags",
+      "arguments": {
+        "path": "test-note.md",
+        "tags": ["old-tag"],
+        "location": "both"
+      }
+    }
+  }
+}
+
+docs {
+  Remove tags from a note. Default removes from both frontmatter and inline.
+}

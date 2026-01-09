@@ -1,0 +1,29 @@
+meta {
+  name: Find Broken Links
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "find-broken-links",
+      "arguments": {
+        "directory": ""
+      }
+    }
+  }
+}
+
+docs {
+  Find wiki-links [[like this]] that don't resolve to any existing note.
+}

@@ -1,0 +1,36 @@
+meta {
+  name: Find and Replace
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "find-replace",
+      "arguments": {
+        "path": "projects",
+        "find": "old-term",
+        "replace": "new-term",
+        "useRegex": false,
+        "caseSensitive": true,
+        "wholeWord": false,
+        "recursive": true,
+        "dryRun": true
+      }
+    }
+  }
+}
+
+docs {
+  Bulk find and replace. Set dryRun=true to preview changes without modifying files.
+}

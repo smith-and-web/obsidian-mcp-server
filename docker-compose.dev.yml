@@ -1,0 +1,19 @@
+# Docker Compose override for development
+# Use with: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This mounts the source code as a volume for hot-reload during development.
+
+services:
+  obsidian-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      # Mount source code for hot-reload
+      - ./src:/app/src:ro
+      # Mount example vault for testing
+      - ./examples/test-vault:/vault:rw
+    environment:
+      - NODE_ENV=development
+    # Use nodemon or similar for auto-restart (requires adding to package.json)
+    command: ["node", "--watch", "src/index.js"]

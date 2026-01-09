@@ -1,0 +1,30 @@
+meta {
+  name: Append to File
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "append-to-file",
+      "arguments": {
+        "path": "test-note.md",
+        "content": "\n## New Section\n\nAppended content."
+      }
+    }
+  }
+}
+
+docs {
+  Append content to the end of a file without reading it first.
+}

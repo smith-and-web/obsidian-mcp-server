@@ -1,0 +1,31 @@
+meta {
+  name: Find Notes by Tag
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "find-notes-by-tag",
+      "arguments": {
+        "tag": "project",
+        "directory": "",
+        "matchExact": false
+      }
+    }
+  }
+}
+
+docs {
+  Find all notes that have a specific tag. Set matchExact=true for exact matches only.
+}

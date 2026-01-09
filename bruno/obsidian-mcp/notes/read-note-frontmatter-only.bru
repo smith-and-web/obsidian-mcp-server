@@ -1,0 +1,30 @@
+meta {
+  name: Read Note (Frontmatter Only)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "read-note",
+      "arguments": {
+        "path": "test-note.md",
+        "frontmatterOnly": true
+      }
+    }
+  }
+}
+
+docs {
+  Read only the frontmatter of a note as JSON. Efficient for large files.
+}

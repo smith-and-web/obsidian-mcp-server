@@ -1,0 +1,23 @@
+meta {
+  name: List Tools
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/list"
+  }
+}
+
+docs {
+  List all available MCP tools and their schemas.
+}

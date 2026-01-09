@@ -1,0 +1,32 @@
+meta {
+  name: Insert at Marker
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "insert-at-marker",
+      "arguments": {
+        "path": "test-note.md",
+        "marker": "<!-- INSERT HERE -->",
+        "content": "Inserted content",
+        "position": "after"
+      }
+    }
+  }
+}
+
+docs {
+  Insert content before or after a specific text marker.
+}

@@ -1,0 +1,30 @@
+meta {
+  name: List Tags
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "list-tags",
+      "arguments": {
+        "directory": "",
+        "includeFiles": false
+      }
+    }
+  }
+}
+
+docs {
+  List all tags in the vault with usage counts. Set includeFiles=true to see which files have each tag.
+}

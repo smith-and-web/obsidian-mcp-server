@@ -1,0 +1,30 @@
+meta {
+  name: Search Missing Tag
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "search-missing-tag",
+      "arguments": {
+        "tag": "status",
+        "directory": ""
+      }
+    }
+  }
+}
+
+docs {
+  Find all notes that are MISSING a specific tag. Useful for auditing tag compliance.
+}

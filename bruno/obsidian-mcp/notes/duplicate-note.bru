@@ -1,0 +1,30 @@
+meta {
+  name: Duplicate Note
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "duplicate-note",
+      "arguments": {
+        "source": "test-note.md",
+        "destination": "test-note-copy.md"
+      }
+    }
+  }
+}
+
+docs {
+  Create a copy of a note with a new name/path.
+}

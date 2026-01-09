@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "Obsidian MCP Server",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}
