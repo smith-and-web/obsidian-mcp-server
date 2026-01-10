@@ -118,13 +118,16 @@ docker run -d \
    npm run dev
    ```
 
-## Claude Desktop Configuration
+## AI Assistant Configuration
+
+### Claude Desktop
 
 Add to your Claude Desktop config file:
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+- **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 
+**Option 1: Local server (via mcp-remote)**
 ```json
 {
   "mcpServers": {
@@ -136,7 +139,7 @@ Add to your Claude Desktop config file:
 }
 ```
 
-Or for a remote server with HTTPS:
+**Option 2: Remote server with HTTPS**
 ```json
 {
   "mcpServers": {
@@ -147,6 +150,64 @@ Or for a remote server with HTTPS:
   }
 }
 ```
+
+**Option 3: Direct npx (runs server locally)**
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["@smith-and-web/obsidian-mcp-server"],
+      "env": {
+        "VAULT_PATH": "/path/to/your/vault",
+        "PORT": "3001"
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Add to your Cursor MCP settings (Settings → MCP):
+
+**Option 1: Connect to running server**
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:3001/sse"]
+    }
+  }
+}
+```
+
+**Option 2: Run server directly**
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["@smith-and-web/obsidian-mcp-server"],
+      "env": {
+        "VAULT_PATH": "/path/to/your/vault",
+        "PORT": "3001"
+      }
+    }
+  }
+}
+```
+
+### Other MCP Clients
+
+Any MCP-compatible client can connect using `mcp-remote`:
+
+```bash
+npx mcp-remote http://localhost:3001/sse
+```
+
+Or connect directly to the SSE endpoint at `http://localhost:3001/sse`.
 
 ## Available Tools
 
