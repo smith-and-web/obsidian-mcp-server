@@ -2,18 +2,21 @@
   "name": "obsidian-mcp-server",
   "version": "1.1.0",
   "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport",
-  "main": "src/index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx --watch src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
-    "format:check": "prettier --check src/"
+    "format:check": "prettier --check src/",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "obsidian",
@@ -45,10 +48,16 @@
     "gray-matter": "^4.0.3"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.4",
+    "@typescript-eslint/eslint-plugin": "^8.52.0",
+    "@typescript-eslint/parser": "^8.52.0",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.4",
     "prettier": "^3.7.4",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "vitest": "^4.0.16"
   }
 }

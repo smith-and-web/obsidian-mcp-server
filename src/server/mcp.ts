@@ -6,17 +6,31 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { toolDefinitions, executeToolCall } from '../tools/index.js';
+import type { VaultManager } from '../vault/VaultManager.js';
+import type { Request, Response } from 'express';
+
+interface MCPRequest {
+  method: string;
+  id: number | string;
+  params?: {
+    name: string;
+    arguments: Record<string, unknown>;
+  };
+}
+
+interface MCPServerHandlers {
+  handleSSEConnection: (res: Response) => Promise<void>;
+  handlePostRequest: (req: Request, res: Response) => Promise<Response | void>;
+}
 
 /**
  * Create and configure an MCP server instance
- * @param {VaultManager} vaultManager - VaultManager instance
- * @returns {object} Server configuration object
  */
-export function createMCPServer(vaultManager) {
+export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
   /**
    * Handle SSE connection (GET /sse)
    */
-  async function handleSSEConnection(res) {
+  async function handleSSEConnection(res: Response): Promise<void> {
     const transport = new SSEServerTransport('/message', res);
     const server = new Server(
       {
@@ -38,11 +52,11 @@ export function createMCPServer(vaultManager) {
       const { name, arguments: args } = request.params;
 
       try {
-        const result = await executeToolCall(name, args, vaultManager);
+        const result = await executeToolCall(name, args as Record<string, unknown>, vaultManager);
         return {
           content: [
             {
-              type: 'text',
+              type: 'text' as const,
               text: JSON.stringify(result, null, 2),
             },
           ],
@@ -51,8 +65,8 @@ export function createMCPServer(vaultManager) {
         return {
           content: [
             {
-              type: 'text',
-              text: `Error: ${error.message}`,
+              type: 'text' as const,
+              text: `Error: ${(error as Error).message}`,
             },
           ],
           isError: true,
@@ -67,8 +81,8 @@ export function createMCPServer(vaultManager) {
   /**
    * Handle direct POST requests (POST /sse)
    */
-  async function handlePostRequest(req, res) {
-    const { method, id, params } = req.body;
+  async function handlePostRequest(req: Request, res: Response): Promise<Response | void> {
+    const { method, id, params } = req.body as MCPRequest;
 
     if (method === 'initialize') {
       return res.json({
@@ -98,7 +112,7 @@ export function createMCPServer(vaultManager) {
     }
 
     if (method === 'tools/call') {
-      const { name, arguments: args } = params;
+      const { name, arguments: args } = params!;
 
       try {
         const result = await executeToolCall(name, args, vaultManager);
@@ -120,7 +134,7 @@ export function createMCPServer(vaultManager) {
           id,
           error: {
             code: -32000,
-            message: error.message,
+            message: (error as Error).message,
           },
         });
       }

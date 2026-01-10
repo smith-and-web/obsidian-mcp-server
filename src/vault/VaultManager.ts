@@ -5,9 +5,58 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { parseFrontmatter, serializeFrontmatter } from './frontmatter.js';
+import type {
+  Frontmatter,
+  VaultManagerOptions,
+  ReadNoteOptions,
+  ReadNoteResult,
+  ReadMultipleNotesResult,
+  WriteNoteOptions,
+  WriteNoteResult,
+  DeleteNoteOptions,
+  DeleteNoteResult,
+  MoveNoteResult,
+  DuplicateNoteResult,
+  GetNotesInfoResult,
+  NoteInfo,
+  DirectoryResult,
+  DeleteDirectoryOptions,
+  ListVaultResult,
+  GetFrontmatterResult,
+  UpdateFrontmatterOptions,
+  UpdateFrontmatterResult,
+  AddTagsOptions,
+  RemoveTagsOptions,
+  TagResult,
+  ListTagsOptions,
+  ListTagsResult,
+  FindNotesByTagOptions,
+  FindNotesByTagResult,
+  SearchMissingTagResult,
+  AuditTagsResult,
+  SearchOptions,
+  SearchResult,
+  SearchFileResult,
+  SearchMatch,
+  BacklinkResult,
+  BrokenLinksResult,
+  AppendResult,
+  SectionResult,
+  InsertAtMarkerResult,
+  ReadSectionResult,
+  ListHeadingsResult,
+  HeadingInfo,
+  FindReplaceOptions,
+  FindReplaceResult,
+  FindReplaceFileResult,
+  CompactKeyMap,
+} from '../types/index.js';
 
 export class VaultManager {
-  constructor(vaultPath, options = {}) {
+  private vaultPath: string;
+  private compactResponses: boolean;
+
+  constructor(vaultPath: string, options: VaultManagerOptions = {}) {
     this.vaultPath = vaultPath;
     this.compactResponses = options.compactResponses || false;
   }
@@ -16,10 +65,11 @@ export class VaultManager {
    * Minify response object keys for token optimization (40-60% smaller)
    * Maps verbose keys to short keys when compact mode is enabled
    */
-  _compact(obj) {
+
+  private _compact<T>(obj: T): T {
     if (!this.compactResponses) return obj;
 
-    const keyMap = {
+    const keyMap: CompactKeyMap = {
       path: 'p',
       content: 'c',
       frontmatter: 'fm',
@@ -59,8 +109,10 @@ export class VaultManager {
       totalRequested: 'req',
     };
 
-    const compact = {};
-    for (const [key, value] of Object.entries(obj)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const compact: Record<string, any> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const [key, value] of Object.entries(obj as Record<string, any>)) {
       const newKey = keyMap[key] || key;
       if (Array.isArray(value)) {
         compact[newKey] = value.map(v =>
@@ -72,15 +124,15 @@ export class VaultManager {
         compact[newKey] = value;
       }
     }
-    return compact;
+    return compact as T;
   }
 
   // Re-export frontmatter utilities as methods for backward compatibility
-  parseFrontmatter(content) {
+  parseFrontmatter(content: string) {
     return parseFrontmatter(content);
   }
 
-  serializeFrontmatter(frontmatter) {
+  serializeFrontmatter(frontmatter: Frontmatter): string {
     return serializeFrontmatter(frontmatter);
   }
 
@@ -88,7 +140,7 @@ export class VaultManager {
   // Note CRUD Operations
   // ============================================
 
-  async readNote(notePath, options = {}) {
+  async readNote(notePath: string, options: ReadNoteOptions = {}): Promise<ReadNoteResult> {
     const { frontmatterOnly = false } = options;
     const fullPath = path.join(this.vaultPath, notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
@@ -106,17 +158,20 @@ export class VaultManager {
     return { path: notePath, content };
   }
 
-  async readMultipleNotes(paths, options = {}) {
+  async readMultipleNotes(
+    paths: string[],
+    options: ReadNoteOptions = {}
+  ): Promise<ReadMultipleNotesResult> {
     const { frontmatterOnly = false } = options;
-    const results = [];
-    const errors = [];
+    const results: ReadNoteResult[] = [];
+    const errors: Array<{ path: string; error: string }> = [];
 
     for (const notePath of paths) {
       try {
         const result = await this.readNote(notePath, { frontmatterOnly });
         results.push(result);
       } catch (err) {
-        errors.push({ path: notePath, error: err.message });
+        errors.push({ path: notePath, error: (err as Error).message });
       }
     }
 
@@ -129,7 +184,7 @@ export class VaultManager {
     };
   }
 
-  async createNote(notePath, content) {
+  async createNote(notePath: string, content: string): Promise<{ path: string; created: boolean }> {
     const fullPath = path.join(this.vaultPath, notePath);
     const dir = path.dirname(fullPath);
     await fs.mkdir(dir, { recursive: true });
@@ -137,13 +192,13 @@ export class VaultManager {
     return { path: notePath, created: true };
   }
 
-  async editNote(notePath, content) {
+  async editNote(notePath: string, content: string): Promise<{ path: string; updated: boolean }> {
     const fullPath = path.join(this.vaultPath, notePath);
     await fs.writeFile(fullPath, content, 'utf-8');
     return { path: notePath, updated: true };
   }
 
-  async deleteNote(notePath, options = {}) {
+  async deleteNote(notePath: string, options: DeleteNoteOptions = {}): Promise<DeleteNoteResult> {
     const { confirm } = options;
     const fullPath = path.join(this.vaultPath, notePath);
     const filename = path.basename(notePath);
@@ -161,7 +216,7 @@ export class VaultManager {
     return this._compact({ path: notePath, deleted: true });
   }
 
-  async moveNote(fromPath, toPath) {
+  async moveNote(fromPath: string, toPath: string): Promise<MoveNoteResult> {
     const fullFromPath = path.join(this.vaultPath, fromPath);
     const fullToPath = path.join(this.vaultPath, toPath);
     const dir = path.dirname(fullToPath);
@@ -170,7 +225,7 @@ export class VaultManager {
     return { from: fromPath, to: toPath, moved: true };
   }
 
-  async duplicateNote(sourcePath, destPath) {
+  async duplicateNote(sourcePath: string, destPath: string): Promise<DuplicateNoteResult> {
     const fullSourcePath = path.join(this.vaultPath, sourcePath);
     const fullDestPath = path.join(this.vaultPath, destPath);
 
@@ -181,8 +236,8 @@ export class VaultManager {
     try {
       await fs.stat(fullDestPath);
       throw new Error(`Destination already exists: ${destPath}`);
-    } catch (_err) {
-      if (err.code !== 'ENOENT') throw err;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
 
     // Create parent directory if needed
@@ -197,12 +252,12 @@ export class VaultManager {
 
   /**
    * Unified write operation with multiple modes
-   * @param {string} notePath - Path to the note
-   * @param {string} content - Content to write
-   * @param {object} options - Write options
-   * @param {'overwrite'|'append'|'prepend'} options.mode - Write mode (default: overwrite)
    */
-  async writeNote(notePath, content, options = {}) {
+  async writeNote(
+    notePath: string,
+    content: string,
+    options: WriteNoteOptions = {}
+  ): Promise<WriteNoteResult> {
     const { mode = 'overwrite' } = options;
     const fullPath = path.join(this.vaultPath, notePath);
 
@@ -223,19 +278,18 @@ export class VaultManager {
         const dir = path.dirname(fullPath);
         await fs.mkdir(dir, { recursive: true });
         await fs.writeFile(fullPath, content, 'utf-8');
-        return this._compact({ path: notePath, mode, written: true });
+        return this._compact({ path: notePath, mode: 'overwrite', written: true });
       }
     }
   }
 
   /**
    * Get file info without reading content (efficient for scanning)
-   * @param {string|string[]} paths - Path(s) to get info for
    */
-  async getNotesInfo(paths) {
+  async getNotesInfo(paths: string | string[]): Promise<GetNotesInfoResult> {
     const pathArray = Array.isArray(paths) ? paths : [paths];
-    const results = [];
-    const errors = [];
+    const results: NoteInfo[] = [];
+    const errors: Array<{ path: string; error: string }> = [];
 
     for (const notePath of pathArray) {
       try {
@@ -260,11 +314,11 @@ export class VaultManager {
           hasFrontmatter,
         });
       } catch (err) {
-        errors.push({ path: notePath, error: err.message });
+        errors.push({ path: notePath, error: (err as Error).message });
       }
     }
 
-    const response = {
+    const response: GetNotesInfoResult = {
       totalRequested: pathArray.length,
       successful: results.length,
       failed: errors.length,
@@ -279,13 +333,16 @@ export class VaultManager {
   // Directory Operations
   // ============================================
 
-  async createDirectory(dirPath) {
+  async createDirectory(dirPath: string): Promise<DirectoryResult> {
     const fullPath = path.join(this.vaultPath, dirPath);
     await fs.mkdir(fullPath, { recursive: true });
     return { path: dirPath, created: true };
   }
 
-  async deleteDirectory(dirPath, options = {}) {
+  async deleteDirectory(
+    dirPath: string,
+    options: DeleteDirectoryOptions = {}
+  ): Promise<DirectoryResult & { recursive: boolean }> {
     const { recursive = false } = options;
     const fullPath = path.join(this.vaultPath, dirPath);
 
@@ -310,7 +367,10 @@ export class VaultManager {
     return { path: dirPath, deleted: true, recursive };
   }
 
-  async renameDirectory(fromPath, toPath) {
+  async renameDirectory(
+    fromPath: string,
+    toPath: string
+  ): Promise<{ from: string; to: string; renamed: boolean }> {
     const fullFromPath = path.join(this.vaultPath, fromPath);
     const fullToPath = path.join(this.vaultPath, toPath);
 
@@ -322,8 +382,8 @@ export class VaultManager {
     try {
       await fs.stat(fullToPath);
       throw new Error(`Destination already exists: ${toPath}`);
-    } catch (_err) {
-      if (err.code !== 'ENOENT') throw err;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
 
     const parentDir = path.dirname(fullToPath);
@@ -333,12 +393,12 @@ export class VaultManager {
     return { from: fromPath, to: toPath, renamed: true };
   }
 
-  async listVault(directory = '') {
+  async listVault(directory: string = ''): Promise<ListVaultResult> {
     const fullPath = path.join(this.vaultPath, directory);
     const entries = await fs.readdir(fullPath, { withFileTypes: true });
 
-    const files = [];
-    const dirs = [];
+    const files: string[] = [];
+    const dirs: string[] = [];
 
     for (const entry of entries) {
       if (entry.name.startsWith('.')) continue;
@@ -358,27 +418,31 @@ export class VaultManager {
   // Frontmatter Operations
   // ============================================
 
-  async getFrontmatter(notePath) {
+  async getFrontmatter(notePath: string): Promise<GetFrontmatterResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
     const { frontmatter, raw } = this.parseFrontmatter(content);
 
     if (!frontmatter) {
-      return { path: notePath, hasFrontmatter: false, frontmatter: null };
+      return { path: notePath, hasFrontmatter: false, frontmatter: null, raw: null };
     }
 
     return { path: notePath, hasFrontmatter: true, frontmatter, raw };
   }
 
-  async updateFrontmatter(notePath, updates, options = {}) {
+  async updateFrontmatter(
+    notePath: string,
+    updates: Frontmatter,
+    options: UpdateFrontmatterOptions = {}
+  ): Promise<UpdateFrontmatterResult> {
     const { createIfMissing = true } = options;
     const fullPath = path.join(this.vaultPath, notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
     const { frontmatter, body } = this.parseFrontmatter(content);
 
-    let newFrontmatter;
+    let newFrontmatter: Frontmatter;
     if (frontmatter) {
       newFrontmatter = { ...frontmatter, ...updates };
     } else if (createIfMissing) {
@@ -403,7 +467,6 @@ export class VaultManager {
       path: notePath,
       updated: true,
       frontmatter: newFrontmatter,
-      fieldsUpdated: Object.keys(updates),
     };
   }
 
@@ -411,16 +474,22 @@ export class VaultManager {
   // Tag Operations
   // ============================================
 
-  async addTags(notePath, tags, options = {}) {
+  async addTags(
+    notePath: string,
+    tags: string[],
+    options: AddTagsOptions = {}
+  ): Promise<TagResult> {
     const { location = 'frontmatter' } = options;
     const fullPath = path.join(this.vaultPath, notePath);
     let content = await fs.readFile(fullPath, 'utf-8');
 
     if (location === 'frontmatter') {
       const { frontmatter, body } = this.parseFrontmatter(content);
-      const newFrontmatter = frontmatter || {};
+      const newFrontmatter: Frontmatter = frontmatter || {};
 
-      const existingTags = Array.isArray(newFrontmatter.tags) ? newFrontmatter.tags : [];
+      const existingTags = Array.isArray(newFrontmatter.tags)
+        ? (newFrontmatter.tags as string[])
+        : [];
       const tagsToAdd = tags.filter(t => !existingTags.includes(t));
       newFrontmatter.tags = [...existingTags, ...tagsToAdd];
 
@@ -431,34 +500,37 @@ export class VaultManager {
       return {
         path: notePath,
         tags: tagsToAdd,
-        added: true,
+        added: tagsToAdd,
         location: 'frontmatter',
-        allTags: newFrontmatter.tags,
       };
     } else {
       const tagString = tags.map(t => `#${t}`).join(' ');
       content += `\n\n${tagString}`;
 
       await fs.writeFile(fullPath, content, 'utf-8');
-      return { path: notePath, tags, added: true, location: 'inline' };
+      return { path: notePath, tags, added: tags, location: 'inline' };
     }
   }
 
-  async removeTags(notePath, tags, options = {}) {
+  async removeTags(
+    notePath: string,
+    tags: string[],
+    options: RemoveTagsOptions = {}
+  ): Promise<TagResult & { removedFrom: string[] }> {
     const { location = 'both' } = options;
     const fullPath = path.join(this.vaultPath, notePath);
     let content = await fs.readFile(fullPath, 'utf-8');
 
-    const removedFrom = [];
+    const removedFrom: string[] = [];
 
     if (location === 'frontmatter' || location === 'both') {
       const { frontmatter, body } = this.parseFrontmatter(content);
 
       if (frontmatter && Array.isArray(frontmatter.tags)) {
-        const originalLength = frontmatter.tags.length;
-        frontmatter.tags = frontmatter.tags.filter(t => !tags.includes(t));
+        const originalLength = (frontmatter.tags as string[]).length;
+        frontmatter.tags = (frontmatter.tags as string[]).filter(t => !tags.includes(t));
 
-        if (frontmatter.tags.length < originalLength) {
+        if ((frontmatter.tags as string[]).length < originalLength) {
           removedFrom.push('frontmatter');
           const serialized = this.serializeFrontmatter(frontmatter);
           content = `---\n${serialized}\n---\n${body}`;
@@ -478,22 +550,22 @@ export class VaultManager {
     }
 
     await fs.writeFile(fullPath, content, 'utf-8');
-    return { path: notePath, tags, removed: true, removedFrom };
+    return { path: notePath, tags, removed: tags, removedFrom };
   }
 
-  async listTags(options = {}) {
+  async listTags(options: ListTagsOptions = {}): Promise<ListTagsResult> {
     const { directory = '', includeFiles = false } = options;
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
-    const tagCounts = {};
-    const tagFiles = {};
+    const tagCounts: Record<string, number> = {};
+    const tagFiles: Record<string, string[]> = {};
 
     await this._collectTagsFromDirectory(searchPath, directory, tagCounts, tagFiles);
 
     const sortedTags = Object.entries(tagCounts)
       .sort((a, b) => b[1] - a[1])
       .map(([tag, count]) => {
-        const result = { tag, count };
+        const result: { tag: string; count: number; files?: string[] } = { tag, count };
         if (includeFiles) {
           result.files = tagFiles[tag];
         }
@@ -508,11 +580,16 @@ export class VaultManager {
     };
   }
 
-  async _collectTagsFromDirectory(dir, basePath, tagCounts, tagFiles) {
+  private async _collectTagsFromDirectory(
+    dir: string,
+    basePath: string,
+    tagCounts: Record<string, number>,
+    tagFiles: Record<string, string[]>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -542,7 +619,7 @@ export class VaultManager {
           // Check frontmatter tags
           const { frontmatter } = this.parseFrontmatter(content);
           if (frontmatter && frontmatter.tags && Array.isArray(frontmatter.tags)) {
-            for (const tag of frontmatter.tags) {
+            for (const tag of frontmatter.tags as string[]) {
               tagCounts[tag] = (tagCounts[tag] || 0) + 1;
               if (!tagFiles[tag]) tagFiles[tag] = [];
               if (!tagFiles[tag].includes(relativePath)) {
@@ -550,18 +627,24 @@ export class VaultManager {
               }
             }
           }
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
     }
   }
 
-  async findNotesByTag(tag, options = {}) {
+  async findNotesByTag(
+    tag: string,
+    options: FindNotesByTagOptions = {}
+  ): Promise<FindNotesByTagResult> {
     const { directory = '', matchExact = false } = options;
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
-    const matchingFiles = [];
+    const matchingFiles: Array<{
+      path: string;
+      occurrences: Array<{ tag: string; line?: number; source: string }>;
+    }> = [];
     await this._findNotesByTagInDirectory(searchPath, directory, tag, matchExact, matchingFiles);
 
     return {
@@ -569,15 +652,24 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       matchExact,
       totalFiles: matchingFiles.length,
-      files: matchingFiles,
+      files: matchingFiles.map(f => f.path),
     };
   }
 
-  async _findNotesByTagInDirectory(dir, basePath, tag, matchExact, matchingFiles) {
+  private async _findNotesByTagInDirectory(
+    dir: string,
+    basePath: string,
+    tag: string,
+    matchExact: boolean,
+    matchingFiles: Array<{
+      path: string;
+      occurrences: Array<{ tag: string; line?: number; source: string }>;
+    }>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -598,7 +690,7 @@ export class VaultManager {
         try {
           const content = await fs.readFile(fullPath, 'utf-8');
           let hasTag = false;
-          const tagLocations = [];
+          const tagLocations: Array<{ tag: string; line?: number; source: string }> = [];
 
           // Check inline tags
           const inlineTagRegex = /#([a-zA-Z0-9_/-]+)/g;
@@ -620,7 +712,7 @@ export class VaultManager {
           // Check frontmatter tags
           const { frontmatter } = this.parseFrontmatter(content);
           if (frontmatter && frontmatter.tags && Array.isArray(frontmatter.tags)) {
-            for (const fmTag of frontmatter.tags) {
+            for (const fmTag of frontmatter.tags as string[]) {
               const matches = matchExact
                 ? fmTag === tag
                 : fmTag.toLowerCase().includes(tag.toLowerCase());
@@ -638,18 +730,21 @@ export class VaultManager {
               occurrences: tagLocations,
             });
           }
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
     }
   }
 
-  async searchMissingTag(tag, options = {}) {
+  async searchMissingTag(
+    tag: string,
+    options: { directory?: string } = {}
+  ): Promise<SearchMissingTagResult> {
     const { directory = '' } = options;
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
-    const missingFiles = [];
+    const missingFiles: string[] = [];
     await this._findNotesMissingTagInDirectory(searchPath, directory, tag, missingFiles);
 
     return {
@@ -660,11 +755,16 @@ export class VaultManager {
     };
   }
 
-  async _findNotesMissingTagInDirectory(dir, basePath, tag, missingFiles) {
+  private async _findNotesMissingTagInDirectory(
+    dir: string,
+    basePath: string,
+    tag: string,
+    missingFiles: string[]
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -692,24 +792,30 @@ export class VaultManager {
           if (!hasTag) {
             const { frontmatter } = this.parseFrontmatter(content);
             if (frontmatter && frontmatter.tags && Array.isArray(frontmatter.tags)) {
-              hasTag = frontmatter.tags.some(t => t === tag || t.startsWith(tag + '/'));
+              hasTag = (frontmatter.tags as string[]).some(
+                t => t === tag || t.startsWith(tag + '/')
+              );
             }
           }
 
           if (!hasTag) {
             missingFiles.push(relativePath);
           }
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
     }
   }
 
-  async auditTags(directory, requiredTags) {
+  async auditTags(directory: string, requiredTags: string[]): Promise<AuditTagsResult> {
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
-    const auditResults = [];
+    const auditResults: Array<{
+      path: string;
+      missingTags: string[];
+      existingTags: string[];
+    }> = [];
     await this._auditTagsInDirectory(searchPath, directory || '', requiredTags, auditResults);
 
     const compliant = auditResults.filter(r => r.missingTags.length === 0);
@@ -719,17 +825,22 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       requiredTags,
       totalFiles: auditResults.length,
-      compliantFiles: compliant.length,
-      nonCompliantFiles: nonCompliant.length,
-      results: nonCompliant,
+      compliant: compliant.length,
+      nonCompliant: nonCompliant.length,
+      results: nonCompliant.map(r => ({ path: r.path, missingTags: r.missingTags })),
     };
   }
 
-  async _auditTagsInDirectory(dir, basePath, requiredTags, auditResults) {
+  private async _auditTagsInDirectory(
+    dir: string,
+    basePath: string,
+    requiredTags: string[],
+    auditResults: Array<{ path: string; missingTags: string[]; existingTags: string[] }>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -743,7 +854,7 @@ export class VaultManager {
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         try {
           const content = await fs.readFile(fullPath, 'utf-8');
-          const fileTags = new Set();
+          const fileTags = new Set<string>();
 
           const inlineTagRegex = /#([a-zA-Z0-9_/-]+)/g;
           let match;
@@ -753,7 +864,7 @@ export class VaultManager {
 
           const { frontmatter } = this.parseFrontmatter(content);
           if (frontmatter && frontmatter.tags && Array.isArray(frontmatter.tags)) {
-            frontmatter.tags.forEach(t => fileTags.add(t));
+            (frontmatter.tags as string[]).forEach(t => fileTags.add(t));
           }
 
           const missingTags = requiredTags.filter(
@@ -765,7 +876,7 @@ export class VaultManager {
             missingTags,
             existingTags: Array.from(fileTags),
           });
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
@@ -776,7 +887,7 @@ export class VaultManager {
   // Search Operations
   // ============================================
 
-  async searchVault(query, options = {}) {
+  async searchVault(query: string, options: SearchOptions = {}): Promise<SearchResult> {
     const {
       directory = '',
       searchContent = true,
@@ -787,7 +898,7 @@ export class VaultManager {
       contextLines = 2,
     } = options;
 
-    const results = [];
+    const results: SearchFileResult[] = [];
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
     await this._searchDirectoryEnhanced(searchPath, query, results, directory, {
@@ -808,13 +919,29 @@ export class VaultManager {
     };
   }
 
-  async _searchDirectoryEnhanced(dir, query, results, basePath = '', options) {
+  private async _searchDirectoryEnhanced(
+    dir: string,
+    query: string,
+    results: SearchFileResult[],
+    basePath: string = '',
+    options: Required<
+      Pick<
+        SearchOptions,
+        | 'searchContent'
+        | 'searchFilenames'
+        | 'caseSensitive'
+        | 'maxResults'
+        | 'includeContext'
+        | 'contextLines'
+      >
+    >
+  ): Promise<void> {
     if (results.length >= options.maxResults) return;
 
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -830,7 +957,7 @@ export class VaultManager {
         if (entry.name.startsWith('.')) continue;
         await this._searchDirectoryEnhanced(fullPath, query, results, relativePath, options);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        const fileResult = { path: relativePath, matches: [] };
+        const fileResult: SearchFileResult = { path: relativePath, matches: [] };
 
         if (options.searchFilenames) {
           const filenameToMatch = options.caseSensitive ? entry.name : entry.name.toLowerCase();
@@ -850,7 +977,7 @@ export class VaultManager {
               for (let i = 0; i < lines.length; i++) {
                 const lineToMatch = options.caseSensitive ? lines[i] : lines[i].toLowerCase();
                 if (lineToMatch.includes(queryToMatch)) {
-                  const match = {
+                  const match: SearchMatch = {
                     line: i + 1,
                     content: lines[i].trim(),
                   };
@@ -874,7 +1001,7 @@ export class VaultManager {
                 }
               }
             }
-          } catch (_err) {
+          } catch {
             // Skip files that can't be read
           }
         }
@@ -890,30 +1017,47 @@ export class VaultManager {
   // Link Operations
   // ============================================
 
-  async getBacklinks(notePath, options = {}) {
+  async getBacklinks(
+    notePath: string,
+    options: { directory?: string } = {}
+  ): Promise<BacklinkResult> {
     const { directory = '' } = options;
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
     const noteNameWithExt = path.basename(notePath);
     const noteName = noteNameWithExt.replace(/\.md$/, '');
 
-    const backlinks = [];
+    const backlinks: Array<{
+      path: string;
+      links: Array<{ link: string; line: number; context: string }>;
+    }> = [];
     await this._findBacklinksInDirectory(searchPath, directory, noteName, notePath, backlinks);
 
     return {
-      note: notePath,
+      path: notePath,
       directory: directory || '(entire vault)',
       totalBacklinks: backlinks.reduce((sum, f) => sum + f.links.length, 0),
-      filesLinking: backlinks.length,
-      results: backlinks,
+      backlinks: backlinks.map(b => ({
+        path: b.path,
+        lines: b.links.map(l => l.line),
+      })),
     };
   }
 
-  async _findBacklinksInDirectory(dir, basePath, noteName, originalPath, backlinks) {
+  private async _findBacklinksInDirectory(
+    dir: string,
+    basePath: string,
+    noteName: string,
+    originalPath: string,
+    backlinks: Array<{
+      path: string;
+      links: Array<{ link: string; line: number; context: string }>;
+    }>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -936,7 +1080,7 @@ export class VaultManager {
         try {
           const content = await fs.readFile(fullPath, 'utf-8');
           const wikiLinkRegex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-          const fileBacklinks = [];
+          const fileBacklinks: Array<{ link: string; line: number; context: string }> = [];
           let match;
 
           while ((match = wikiLinkRegex.exec(content)) !== null) {
@@ -969,21 +1113,24 @@ export class VaultManager {
               links: fileBacklinks,
             });
           }
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
     }
   }
 
-  async findBrokenLinks(options = {}) {
+  async findBrokenLinks(options: { directory?: string } = {}): Promise<BrokenLinksResult> {
     const { directory = '' } = options;
     const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
 
-    const existingNotes = new Set();
+    const existingNotes = new Set<string>();
     await this._collectNotePaths(this.vaultPath, '', existingNotes);
 
-    const brokenLinks = [];
+    const brokenLinks: Array<{
+      path: string;
+      brokenLinks: Array<{ link: string; line: number }>;
+    }> = [];
     await this._findBrokenLinksInDirectory(searchPath, directory, existingNotes, brokenLinks);
 
     return {
@@ -994,11 +1141,15 @@ export class VaultManager {
     };
   }
 
-  async _collectNotePaths(dir, basePath, existingNotes) {
+  private async _collectNotePaths(
+    dir: string,
+    basePath: string,
+    existingNotes: Set<string>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -1021,11 +1172,16 @@ export class VaultManager {
     }
   }
 
-  async _findBrokenLinksInDirectory(dir, basePath, existingNotes, brokenLinks) {
+  private async _findBrokenLinksInDirectory(
+    dir: string,
+    basePath: string,
+    existingNotes: Set<string>,
+    brokenLinks: Array<{ path: string; brokenLinks: Array<{ link: string; line: number }> }>
+  ): Promise<void> {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (_err) {
+    } catch {
       return;
     }
 
@@ -1040,7 +1196,7 @@ export class VaultManager {
         try {
           const content = await fs.readFile(fullPath, 'utf-8');
           const wikiLinkRegex = /\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
-          const fileBrokenLinks = [];
+          const fileBrokenLinks: Array<{ link: string; line: number }> = [];
           let match;
 
           while ((match = wikiLinkRegex.exec(content)) !== null) {
@@ -1081,7 +1237,7 @@ export class VaultManager {
               brokenLinks: fileBrokenLinks,
             });
           }
-        } catch (_err) {
+        } catch {
           // Skip files that can't be read
         }
       }
@@ -1092,13 +1248,17 @@ export class VaultManager {
   // Section Operations
   // ============================================
 
-  async appendToFile(notePath, content) {
+  async appendToFile(notePath: string, content: string): Promise<AppendResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     await fs.appendFile(fullPath, '\n' + content, 'utf-8');
     return { path: notePath, appended: true };
   }
 
-  async appendToSection(notePath, heading, content) {
+  async appendToSection(
+    notePath: string,
+    heading: string,
+    content: string
+  ): Promise<SectionResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
@@ -1112,12 +1272,12 @@ export class VaultManager {
     const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
     const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
 
-    const afterHeading = fileContent.slice(match.index + match[0].length);
+    const afterHeading = fileContent.slice(match.index! + match[0].length);
     const nextMatch = afterHeading.match(nextHeadingRegex);
 
-    let insertPos;
+    let insertPos: number;
     if (nextMatch) {
-      insertPos = match.index + match[0].length + nextMatch.index;
+      insertPos = match.index! + match[0].length + nextMatch.index!;
     } else {
       insertPos = fileContent.length;
     }
@@ -1129,7 +1289,11 @@ export class VaultManager {
     return { path: notePath, heading, appended: true };
   }
 
-  async replaceSection(notePath, heading, newContent) {
+  async replaceSection(
+    notePath: string,
+    heading: string,
+    newContent: string
+  ): Promise<SectionResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
@@ -1143,18 +1307,18 @@ export class VaultManager {
     const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
     const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
 
-    const afterHeading = fileContent.slice(match.index + match[0].length);
+    const afterHeading = fileContent.slice(match.index! + match[0].length);
     const nextMatch = afterHeading.match(nextHeadingRegex);
 
-    let sectionEnd;
+    let sectionEnd: number;
     if (nextMatch) {
-      sectionEnd = match.index + match[0].length + nextMatch.index;
+      sectionEnd = match.index! + match[0].length + nextMatch.index!;
     } else {
       sectionEnd = fileContent.length;
     }
 
     const updatedContent =
-      fileContent.slice(0, match.index + match[0].length) +
+      fileContent.slice(0, match.index! + match[0].length) +
       '\n' +
       newContent +
       '\n' +
@@ -1164,7 +1328,12 @@ export class VaultManager {
     return { path: notePath, heading, replaced: true };
   }
 
-  async insertAtMarker(notePath, marker, content, position = 'after') {
+  async insertAtMarker(
+    notePath: string,
+    marker: string,
+    content: string,
+    position: 'before' | 'after' = 'after'
+  ): Promise<InsertAtMarkerResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
@@ -1173,7 +1342,7 @@ export class VaultManager {
       throw new Error(`Marker "${marker}" not found in ${notePath}`);
     }
 
-    let insertPos;
+    let insertPos: number;
     if (position === 'after') {
       insertPos = markerIndex + marker.length;
     } else {
@@ -1187,7 +1356,7 @@ export class VaultManager {
     return { path: notePath, marker, inserted: true, position };
   }
 
-  async readSection(notePath, heading) {
+  async readSection(notePath: string, heading: string): Promise<ReadSectionResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
@@ -1201,27 +1370,27 @@ export class VaultManager {
     const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
     const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
 
-    const afterHeading = fileContent.slice(match.index + match[0].length);
+    const afterHeading = fileContent.slice(match.index! + match[0].length);
     const nextMatch = afterHeading.match(nextHeadingRegex);
 
-    let sectionEnd;
+    let sectionEnd: number;
     if (nextMatch) {
-      sectionEnd = match.index + match[0].length + nextMatch.index;
+      sectionEnd = match.index! + match[0].length + nextMatch.index!;
     } else {
       sectionEnd = fileContent.length;
     }
 
-    const sectionContent = fileContent.slice(match.index + match[0].length, sectionEnd).trim();
+    const sectionContent = fileContent.slice(match.index! + match[0].length, sectionEnd).trim();
 
     return { path: notePath, heading, content: sectionContent };
   }
 
-  async listHeadings(notePath, level = null) {
+  async listHeadings(notePath: string, level: number | null = null): Promise<ListHeadingsResult> {
     const fullPath = path.join(this.vaultPath, notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = /^(#{1,6})\s+(.+)$/gm;
-    const headings = [];
+    const headings: HeadingInfo[] = [];
     let match;
 
     while ((match = headingRegex.exec(fileContent)) !== null) {
@@ -1229,22 +1398,29 @@ export class VaultManager {
       const headingText = match[2].trim();
 
       if (level === null || headingLevel === level) {
+        const beforeMatch = fileContent.slice(0, match.index);
+        const lineNumber = (beforeMatch.match(/\n/g) || []).length + 1;
         headings.push({
           level: headingLevel,
           text: headingText,
-          full: match[1] + ' ' + headingText,
+          line: lineNumber,
         });
       }
     }
 
-    return { path: notePath, headings, count: headings.length };
+    return { path: notePath, headings };
   }
 
   // ============================================
   // Find and Replace
   // ============================================
 
-  async findReplace(targetPath, find, replace, options = {}) {
+  async findReplace(
+    targetPath: string,
+    find: string,
+    replace: string,
+    options: FindReplaceOptions = {}
+  ): Promise<FindReplaceResult> {
     const {
       useRegex = false,
       caseSensitive = true,
@@ -1255,7 +1431,7 @@ export class VaultManager {
 
     const fullPath = path.join(this.vaultPath, targetPath);
     const stats = await fs.stat(fullPath);
-    const changes = [];
+    const changes: FindReplaceFileResult[] = [];
 
     if (stats.isDirectory()) {
       await this._findReplaceInDirectory(
@@ -1281,14 +1457,24 @@ export class VaultManager {
     const totalReplacements = changes.reduce((sum, c) => sum + c.replacements, 0);
 
     return {
-      filesModified,
+      find,
+      replace,
+      options: { useRegex, caseSensitive, wholeWord, recursive, dryRun },
+      totalFiles: filesModified,
       totalReplacements,
-      changes,
       dryRun,
+      results: changes,
     };
   }
 
-  async _findReplaceInDirectory(dirPath, relativePath, find, replace, options, changes) {
+  private async _findReplaceInDirectory(
+    dirPath: string,
+    relativePath: string,
+    find: string,
+    replace: string,
+    options: Required<Omit<FindReplaceOptions, 'recursive'>> & { recursive: boolean },
+    changes: FindReplaceFileResult[]
+  ): Promise<void> {
     const entries = await fs.readdir(dirPath, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -1314,11 +1500,18 @@ export class VaultManager {
     }
   }
 
-  async _findReplaceInFile(fullPath, relativePath, find, replace, options, changes) {
+  private async _findReplaceInFile(
+    fullPath: string,
+    relativePath: string,
+    find: string,
+    replace: string,
+    options: Omit<Required<FindReplaceOptions>, 'recursive'>,
+    changes: FindReplaceFileResult[]
+  ): Promise<void> {
     let content = await fs.readFile(fullPath, 'utf-8');
     const originalContent = content;
 
-    let pattern;
+    let pattern: RegExp;
     if (options.useRegex) {
       const flags = options.caseSensitive ? 'g' : 'gi';
       pattern = new RegExp(find, flags);
@@ -1344,16 +1537,21 @@ export class VaultManager {
       }
 
       changes.push({
-        file: relativePath,
+        path: relativePath,
         replacements,
-        preview: this._getReplacementPreview(originalContent, content, find, 3),
+        matches: this._getReplacementPreview(originalContent, content, find, 3),
       });
     }
   }
 
-  _getReplacementPreview(oldContent, newContent, find, maxExamples = 3) {
+  private _getReplacementPreview(
+    oldContent: string,
+    newContent: string,
+    find: string,
+    maxExamples: number = 3
+  ): Array<{ line: number; before: string; after: string }> {
     const lines = oldContent.split('\n');
-    const examples = [];
+    const examples: Array<{ line: number; before: string; after: string }> = [];
 
     for (let i = 0; i < lines.length && examples.length < maxExamples; i++) {
       if (lines[i].toLowerCase().includes(find.toLowerCase())) {

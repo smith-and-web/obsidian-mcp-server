@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **TypeScript Conversion**: Entire codebase converted to TypeScript for improved type safety
+- Added TypeScript build step to CI pipeline
+- Updated ESLint configuration for TypeScript support
+
+### Infrastructure
+- Added `@typescript-eslint/parser` and `@typescript-eslint/eslint-plugin`
+- Updated Dockerfile to build TypeScript before running
+- Added `npm run build` script and `prepublishOnly` hook
+
 ## [1.1.0] - 2025-01-09
 
 ### Added
@@ -20,6 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Infrastructure
 - Added `COMPACT_RESPONSES` environment variable
+- Added ESLint and Prettier for code formatting
+- Added Vitest unit tests (25 tests)
+- Added GitHub Actions CI pipeline
+- Added GitHub issue and PR templates
+- Added Dependabot configuration
 
 ## [1.0.0] - 2025-01-09
 

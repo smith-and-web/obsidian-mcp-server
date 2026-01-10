@@ -8,12 +8,16 @@ WORKDIR /app
 
 # Copy package files
 COPY package.json package-lock.json* ./
+COPY tsconfig.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
 COPY src/ ./src/
+
+# Build TypeScript
+RUN npm run build
 
 # Create vault mount point
 RUN mkdir -p /vault
@@ -22,4 +26,4 @@ RUN mkdir -p /vault
 EXPOSE 3000
 
 # Run the server
-CMD ["node", "src/index.js"]
+CMD ["node", "dist/index.js"]

@@ -29,18 +29,18 @@ const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RE
 const { handleSSEConnection, handlePostRequest } = createMCPServer(vaultManager);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
   res.json({ status: 'ok', vault: VAULT_PATH });
 });
 
 // SSE endpoint for MCP (GET)
-app.get('/sse', async (req, res) => {
+app.get('/sse', async (_req, res) => {
   console.log('New SSE connection');
   await handleSSEConnection(res);
 });
 
 // POST endpoint for messages (used by SSE transport)
-app.post('/message', express.json(), async (req, res) => {
+app.post('/message', express.json(), async (_req, res) => {
   res.json({ status: 'ok' });
 });
 
@@ -48,7 +48,7 @@ app.post('/message', express.json(), async (req, res) => {
 app.post('/sse', handlePostRequest);
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Obsidian MCP SSE server running on port ${PORT}`);
   console.log(`Vault path: ${VAULT_PATH}`);
   console.log(`Compact responses: ${COMPACT_RESPONSES}`);

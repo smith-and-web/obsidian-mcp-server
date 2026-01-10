@@ -6,6 +6,7 @@
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 [![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that enables AI assistants like Claude to interact with your Obsidian vault. Access your notes, create content, manage tags, and search your knowledge base through natural conversation.
 
@@ -44,24 +45,41 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 
 ### Docker (Recommended)
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/smith-and-web/obsidian-mcp-server.git
-   cd obsidian-mcp-server
-   ```
+**Using the pre-built image from GitHub Container Registry:**
 
-2. **Configure your vault path** in `docker-compose.yml`:
+```bash
+docker run -d \
+  --name obsidian-mcp \
+  -v /path/to/your/vault:/vault:rw \
+  -p 3001:3000 \
+  -e VAULT_PATH=/vault \
+  ghcr.io/smith-and-web/obsidian-mcp-server:latest
+```
+
+**Or with Docker Compose:**
+
+1. **Create a `docker-compose.yml`:**
    ```yaml
-   volumes:
-     - /path/to/your/vault:/vault:rw
+   version: '3.8'
+   services:
+     obsidian-mcp:
+       image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
+       container_name: obsidian-mcp
+       restart: unless-stopped
+       volumes:
+         - /path/to/your/vault:/vault:rw
+       ports:
+         - "3001:3000"
+       environment:
+         - VAULT_PATH=/vault
    ```
 
-3. **Start the server**
+2. **Start the server**
    ```bash
    docker-compose up -d
    ```
 
-4. **Verify it's running**
+3. **Verify it's running**
    ```bash
    curl http://localhost:3001/health
    ```

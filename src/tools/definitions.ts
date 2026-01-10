@@ -3,7 +3,17 @@
  * Schema definitions for all available tools
  */
 
-export const toolDefinitions = [
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: 'object';
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+export const toolDefinitions: ToolDefinition[] = [
   // ============================================
   // Note Operations
   // ============================================

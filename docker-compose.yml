@@ -2,12 +2,13 @@ version: '3.8'
 
 services:
   obsidian-mcp:
-    build: .
+    image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
+    # Or build locally: build: .
     container_name: obsidian-mcp
     restart: unless-stopped
     volumes:
-      # Mount your NAS vault here - update this path
-      - /path/to/nas/mount/vault:/vault:rw
+      # Mount your vault here - update this path
+      - /path/to/your/vault:/vault:rw
     ports:
       - "3001:3000"
     networks:
@@ -15,6 +16,8 @@ services:
     environment:
       - NODE_ENV=production
       - VAULT_PATH=/vault
+      # Optional: Enable compact responses for reduced token usage
+      # - COMPACT_RESPONSES=true
 
 networks:
   nginx:

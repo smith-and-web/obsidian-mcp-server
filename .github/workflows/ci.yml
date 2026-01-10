@@ -28,6 +28,9 @@ jobs:
       - name: Check Prettier formatting
         run: npm run format:check
 
+      - name: Build TypeScript
+        run: npm run build
+
   test:
     name: Test
     runs-on: ubuntu-latest

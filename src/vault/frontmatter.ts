@@ -4,13 +4,12 @@
  */
 
 import matter from 'gray-matter';
+import type { Frontmatter, ParsedFrontmatter } from '../types/index.js';
 
 /**
  * Parse YAML frontmatter from markdown content
- * @param {string} content - Full markdown content
- * @returns {{ frontmatter: object|null, body: string, raw: string|null }}
  */
-export function parseFrontmatter(content) {
+export function parseFrontmatter(content: string): ParsedFrontmatter {
   try {
     const parsed = matter(content);
 
@@ -22,11 +21,11 @@ export function parseFrontmatter(content) {
     }
 
     return {
-      frontmatter: parsed.data,
+      frontmatter: parsed.data as Frontmatter,
       body: parsed.content,
       raw: parsed.matter, // The raw YAML string between ---
     };
-  } catch (_err) {
+  } catch {
     // If gray-matter fails, return content as body with no frontmatter
     return { frontmatter: null, body: content, raw: null };
   }
@@ -34,10 +33,8 @@ export function parseFrontmatter(content) {
 
 /**
  * Serialize frontmatter object back to YAML string
- * @param {object} frontmatter - Frontmatter object to serialize
- * @returns {string} YAML string (without --- delimiters)
  */
-export function serializeFrontmatter(frontmatter) {
+export function serializeFrontmatter(frontmatter: Frontmatter): string {
   // Use gray-matter's stringify but extract just the YAML portion
   const result = matter.stringify('', frontmatter);
   // Result is: ---\n{yaml}\n---\n
@@ -48,7 +45,7 @@ export function serializeFrontmatter(frontmatter) {
   }
 
   // Fallback: manual serialization for edge cases
-  const lines = [];
+  const lines: string[] = [];
   for (const [key, value] of Object.entries(frontmatter)) {
     if (Array.isArray(value)) {
       if (value.length === 0) {
@@ -64,7 +61,7 @@ export function serializeFrontmatter(frontmatter) {
     } else if (typeof value === 'object') {
       // Nested objects - simple one-level handling
       lines.push(`${key}:`);
-      for (const [subKey, subValue] of Object.entries(value)) {
+      for (const [subKey, subValue] of Object.entries(value as Record<string, unknown>)) {
         lines.push(`  ${subKey}: ${subValue}`);
       }
     } else {
@@ -87,11 +84,8 @@ export function serializeFrontmatter(frontmatter) {
 
 /**
  * Reconstruct full file content from frontmatter and body
- * @param {object} frontmatter - Frontmatter object
- * @param {string} body - Body content
- * @returns {string} Full file content with frontmatter
  */
-export function reconstructContent(frontmatter, body) {
+export function reconstructContent(frontmatter: Frontmatter | null, body: string): string {
   if (!frontmatter || Object.keys(frontmatter).length === 0) {
     return body;
   }
