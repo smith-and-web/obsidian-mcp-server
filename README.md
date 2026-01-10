@@ -1,11 +1,11 @@
 # Obsidian MCP Server
 
 [![CI](https://github.com/smith-and-web/obsidian-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/smith-and-web/obsidian-mcp-server/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/github/v/release/smith-and-web/obsidian-mcp-server?label=version)](https://github.com/smith-and-web/obsidian-mcp-server/releases)
+[![npm](https://img.shields.io/npm/v/@smith-and-web/obsidian-mcp-server)](https://www.npmjs.com/package/@smith-and-web/obsidian-mcp-server)
+[![Docker](https://img.shields.io/badge/ghcr.io-latest-blue)](https://ghcr.io/smith-and-web/obsidian-mcp-server)
 [![License](https://img.shields.io/github/license/smith-and-web/obsidian-mcp-server)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
-[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that enables AI assistants like Claude to interact with your Obsidian vault. Access your notes, create content, manage tags, and search your knowledge base through natural conversation.
@@ -43,7 +43,21 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 
 ## Quick Start
 
-### Docker (Recommended)
+### npx (Quickest)
+
+Run directly without installation:
+
+```bash
+VAULT_PATH=/path/to/your/vault npx @smith-and-web/obsidian-mcp-server
+```
+
+With options:
+
+```bash
+VAULT_PATH=/path/to/vault PORT=3001 COMPACT_RESPONSES=true npx @smith-and-web/obsidian-mcp-server
+```
+
+### Docker (Recommended for Production)
 
 **Using the pre-built image from GitHub Container Registry:**
 
@@ -211,17 +225,20 @@ Or for a remote server with HTTPS:
 ```
 obsidian-mcp-server/
 ├── src/
-│   ├── index.js              # Express server entry point
+│   ├── index.ts              # Express server entry point
 │   ├── vault/
-│   │   ├── VaultManager.js   # Core vault operations
-│   │   └── frontmatter.js    # YAML parsing utilities
+│   │   ├── VaultManager.ts   # Core vault operations
+│   │   └── frontmatter.ts    # YAML parsing utilities
 │   ├── tools/
-│   │   ├── definitions.js    # MCP tool schemas
-│   │   ├── handlers.js       # Tool execution logic
-│   │   └── index.js          # Tool exports
-│   └── server/
-│       ├── mcp.js            # MCP protocol handlers
-│       └── middleware.js     # Express middleware
+│   │   ├── definitions.ts    # MCP tool schemas
+│   │   ├── handlers.ts       # Tool execution logic
+│   │   └── index.ts          # Tool exports
+│   ├── server/
+│   │   ├── mcp.ts            # MCP protocol handlers
+│   │   └── middleware.ts     # Express middleware
+│   └── types/
+│       └── index.ts          # TypeScript type definitions
+├── tests/                    # Vitest unit tests
 ├── Dockerfile
 ├── docker-compose.yml
 ├── package.json
