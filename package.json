@@ -1,6 +1,6 @@
 {
   "name": "@smith-and-web/obsidian-mcp-server",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -48,7 +48,7 @@
     "LICENSE"
   ],
   "bin": {
-    "obsidian-mcp-server": "./dist/index.js"
+    "obsidian-mcp-server": "dist/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
