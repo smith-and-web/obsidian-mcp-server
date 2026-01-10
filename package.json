@@ -42,6 +42,14 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "obsidian-mcp-server": "./dist/index.js"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^5.2.1",
