@@ -31,12 +31,10 @@ export function createMCPServer(vaultManager) {
     );
 
     // Register tool list handler
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
-      return { tools: toolDefinitions };
-    });
+    server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolDefinitions }));
 
     // Register tool execution handler
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler(CallToolRequestSchema, async request => {
       const { name, arguments: args } = request.params;
 
       try {
@@ -75,7 +73,7 @@ export function createMCPServer(vaultManager) {
     if (method === 'initialize') {
       return res.json({
         jsonrpc: '2.0',
-        id: id,
+        id,
         result: {
           protocolVersion: '2024-11-05',
           capabilities: {
@@ -92,7 +90,7 @@ export function createMCPServer(vaultManager) {
     if (method === 'tools/list') {
       return res.json({
         jsonrpc: '2.0',
-        id: id,
+        id,
         result: {
           tools: toolDefinitions,
         },
@@ -106,7 +104,7 @@ export function createMCPServer(vaultManager) {
         const result = await executeToolCall(name, args, vaultManager);
         return res.json({
           jsonrpc: '2.0',
-          id: id,
+          id,
           result: {
             content: [
               {
@@ -119,7 +117,7 @@ export function createMCPServer(vaultManager) {
       } catch (error) {
         return res.json({
           jsonrpc: '2.0',
-          id: id,
+          id,
           error: {
             code: -32000,
             message: error.message,

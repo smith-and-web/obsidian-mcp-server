@@ -46,7 +46,9 @@ export async function executeToolCall(name, args, vaultManager) {
     case 'get-frontmatter':
       return vaultManager.getFrontmatter(args.path);
     case 'update-frontmatter':
-      return vaultManager.updateFrontmatter(args.path, args.updates, { createIfMissing: args.createIfMissing });
+      return vaultManager.updateFrontmatter(args.path, args.updates, {
+        createIfMissing: args.createIfMissing,
+      });
 
     // Tag Operations
     case 'add-tags':
@@ -56,7 +58,10 @@ export async function executeToolCall(name, args, vaultManager) {
     case 'list-tags':
       return vaultManager.listTags({ directory: args.directory, includeFiles: args.includeFiles });
     case 'find-notes-by-tag':
-      return vaultManager.findNotesByTag(args.tag, { directory: args.directory, matchExact: args.matchExact });
+      return vaultManager.findNotesByTag(args.tag, {
+        directory: args.directory,
+        matchExact: args.matchExact,
+      });
     case 'search-missing-tag':
       return vaultManager.searchMissingTag(args.tag, { directory: args.directory });
     case 'audit-tags':
@@ -71,7 +76,7 @@ export async function executeToolCall(name, args, vaultManager) {
         caseSensitive: args.caseSensitive,
         maxResults: args.maxResults,
         includeContext: args.includeContext,
-        contextLines: args.contextLines
+        contextLines: args.contextLines,
       });
 
     // Link Operations
@@ -101,7 +106,7 @@ export async function executeToolCall(name, args, vaultManager) {
         caseSensitive: args.caseSensitive,
         wholeWord: args.wholeWord,
         recursive: args.recursive,
-        dryRun: args.dryRun
+        dryRun: args.dryRun,
       });
 
     default:

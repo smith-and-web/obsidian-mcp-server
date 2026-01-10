@@ -24,9 +24,9 @@ export function parseFrontmatter(content) {
     return {
       frontmatter: parsed.data,
       body: parsed.content,
-      raw: parsed.matter // The raw YAML string between ---
+      raw: parsed.matter, // The raw YAML string between ---
     };
-  } catch (err) {
+  } catch (_err) {
     // If gray-matter fails, return content as body with no frontmatter
     return { frontmatter: null, body: content, raw: null };
   }
@@ -69,7 +69,13 @@ export function serializeFrontmatter(frontmatter) {
       }
     } else {
       const strValue = String(value);
-      if (strValue.includes(':') || strValue.includes('#') || strValue.includes("'") || strValue.includes('"') || strValue.includes('\n')) {
+      if (
+        strValue.includes(':') ||
+        strValue.includes('#') ||
+        strValue.includes("'") ||
+        strValue.includes('"') ||
+        strValue.includes('\n')
+      ) {
         lines.push(`${key}: "${strValue.replace(/"/g, '\\"')}"`);
       } else {
         lines.push(`${key}: ${strValue}`);

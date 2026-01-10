@@ -6,7 +6,14 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/"
   },
   "keywords": [
     "obsidian",
@@ -36,5 +43,12 @@
     "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^4.18.2",
     "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "prettier": "^3.7.4",
+    "vitest": "^4.0.16"
   }
 }

@@ -1,5 +1,12 @@
 # Obsidian MCP Server
 
+[![CI](https://github.com/smith-and-web/obsidian-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/smith-and-web/obsidian-mcp-server/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/release/smith-and-web/obsidian-mcp-server?label=version)](https://github.com/smith-and-web/obsidian-mcp-server/releases)
+[![License](https://img.shields.io/github/license/smith-and-web/obsidian-mcp-server)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
+[![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
+[![Docker](https://img.shields.io/badge/docker-ready-blue)](https://www.docker.com/)
+
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that enables AI assistants like Claude to interact with your Obsidian vault. Access your notes, create content, manage tags, and search your knowledge base through natural conversation.
 
 ## Features

@@ -4,7 +4,7 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import { parseFrontmatter, serializeFrontmatter, reconstructContent } from './frontmatter.js';
+import { parseFrontmatter, serializeFrontmatter } from './frontmatter.js';
 
 export class VaultManager {
   constructor(vaultPath, options = {}) {
@@ -56,14 +56,16 @@ export class VaultManager {
       extension: 'ext',
       successful: 'ok',
       failed: 'fail',
-      totalRequested: 'req'
+      totalRequested: 'req',
     };
 
     const compact = {};
     for (const [key, value] of Object.entries(obj)) {
       const newKey = keyMap[key] || key;
       if (Array.isArray(value)) {
-        compact[newKey] = value.map(v => typeof v === 'object' && v !== null ? this._compact(v) : v);
+        compact[newKey] = value.map(v =>
+          typeof v === 'object' && v !== null ? this._compact(v) : v
+        );
       } else if (typeof value === 'object' && value !== null) {
         compact[newKey] = this._compact(value);
       } else {
@@ -97,7 +99,7 @@ export class VaultManager {
         path: notePath,
         hasFrontmatter: !!frontmatter,
         frontmatter: frontmatter || null,
-        raw: raw || null
+        raw: raw || null,
       };
     }
 
@@ -123,7 +125,7 @@ export class VaultManager {
       successful: results.length,
       failed: errors.length,
       results,
-      errors: errors.length > 0 ? errors : undefined
+      errors: errors.length > 0 ? errors : undefined,
     };
   }
 
@@ -151,7 +153,7 @@ export class VaultManager {
       return {
         path: notePath,
         deleted: false,
-        error: `Safety check failed: confirm must match filename "${filename}". Pass confirm: "${filename}" to delete.`
+        error: `Safety check failed: confirm must match filename "${filename}". Pass confirm: "${filename}" to delete.`,
       };
     }
 
@@ -179,7 +181,7 @@ export class VaultManager {
     try {
       await fs.stat(fullDestPath);
       throw new Error(`Destination already exists: ${destPath}`);
-    } catch (err) {
+    } catch (_err) {
       if (err.code !== 'ENOENT') throw err;
     }
 
@@ -255,7 +257,7 @@ export class VaultManager {
           size: stats.size,
           modified: stats.mtime.toISOString(),
           created: stats.birthtime.toISOString(),
-          hasFrontmatter
+          hasFrontmatter,
         });
       } catch (err) {
         errors.push({ path: notePath, error: err.message });
@@ -267,7 +269,7 @@ export class VaultManager {
       successful: results.length,
       failed: errors.length,
       results,
-      ...(errors.length > 0 && { errors })
+      ...(errors.length > 0 && { errors }),
     };
 
     return this._compact(response);
@@ -294,7 +296,9 @@ export class VaultManager {
 
     const entries = await fs.readdir(fullPath);
     if (entries.length > 0 && !recursive) {
-      throw new Error(`Directory is not empty: ${dirPath}. Use recursive=true to delete non-empty directories.`);
+      throw new Error(
+        `Directory is not empty: ${dirPath}. Use recursive=true to delete non-empty directories.`
+      );
     }
 
     if (recursive) {
@@ -318,7 +322,7 @@ export class VaultManager {
     try {
       await fs.stat(fullToPath);
       throw new Error(`Destination already exists: ${toPath}`);
-    } catch (err) {
+    } catch (_err) {
       if (err.code !== 'ENOENT') throw err;
     }
 
@@ -399,7 +403,7 @@ export class VaultManager {
       path: notePath,
       updated: true,
       frontmatter: newFrontmatter,
-      fieldsUpdated: Object.keys(updates)
+      fieldsUpdated: Object.keys(updates),
     };
   }
 
@@ -429,7 +433,7 @@ export class VaultManager {
         tags: tagsToAdd,
         added: true,
         location: 'frontmatter',
-        allTags: newFrontmatter.tags
+        allTags: newFrontmatter.tags,
       };
     } else {
       const tagString = tags.map(t => `#${t}`).join(' ');
@@ -500,7 +504,7 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       totalTags: sortedTags.length,
       totalUsages: Object.values(tagCounts).reduce((a, b) => a + b, 0),
-      tags: sortedTags
+      tags: sortedTags,
     };
   }
 
@@ -508,7 +512,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -546,7 +550,7 @@ export class VaultManager {
               }
             }
           }
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -565,7 +569,7 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       matchExact,
       totalFiles: matchingFiles.length,
-      files: matchingFiles
+      files: matchingFiles,
     };
   }
 
@@ -573,7 +577,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -583,7 +587,13 @@ export class VaultManager {
 
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue;
-        await this._findNotesByTagInDirectory(fullPath, relativePath, tag, matchExact, matchingFiles);
+        await this._findNotesByTagInDirectory(
+          fullPath,
+          relativePath,
+          tag,
+          matchExact,
+          matchingFiles
+        );
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         try {
           const content = await fs.readFile(fullPath, 'utf-8');
@@ -625,10 +635,10 @@ export class VaultManager {
           if (hasTag) {
             matchingFiles.push({
               path: relativePath,
-              occurrences: tagLocations
+              occurrences: tagLocations,
             });
           }
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -646,7 +656,7 @@ export class VaultManager {
       tag,
       directory: directory || '(entire vault)',
       totalFiles: missingFiles.length,
-      files: missingFiles
+      files: missingFiles,
     };
   }
 
@@ -654,7 +664,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -689,7 +699,7 @@ export class VaultManager {
           if (!hasTag) {
             missingFiles.push(relativePath);
           }
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -711,7 +721,7 @@ export class VaultManager {
       totalFiles: auditResults.length,
       compliantFiles: compliant.length,
       nonCompliantFiles: nonCompliant.length,
-      results: nonCompliant
+      results: nonCompliant,
     };
   }
 
@@ -719,7 +729,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -746,16 +756,16 @@ export class VaultManager {
             frontmatter.tags.forEach(t => fileTags.add(t));
           }
 
-          const missingTags = requiredTags.filter(reqTag => {
-            return !Array.from(fileTags).some(t => t === reqTag || t.startsWith(reqTag + '/'));
-          });
+          const missingTags = requiredTags.filter(
+            reqTag => !Array.from(fileTags).some(t => t === reqTag || t.startsWith(reqTag + '/'))
+          );
 
           auditResults.push({
             path: relativePath,
             missingTags,
-            existingTags: Array.from(fileTags)
+            existingTags: Array.from(fileTags),
           });
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -774,7 +784,7 @@ export class VaultManager {
       caseSensitive = false,
       maxResults = 100,
       includeContext = true,
-      contextLines = 2
+      contextLines = 2,
     } = options;
 
     const results = [];
@@ -786,7 +796,7 @@ export class VaultManager {
       caseSensitive,
       maxResults,
       includeContext,
-      contextLines
+      contextLines,
     });
 
     return {
@@ -794,7 +804,7 @@ export class VaultManager {
       options: { directory, searchContent, searchFilenames, caseSensitive },
       totalMatches: results.reduce((sum, r) => sum + (r.matches ? r.matches.length : 1), 0),
       filesMatched: results.length,
-      results
+      results,
     };
   }
 
@@ -804,7 +814,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -842,7 +852,7 @@ export class VaultManager {
                 if (lineToMatch.includes(queryToMatch)) {
                   const match = {
                     line: i + 1,
-                    content: lines[i].trim()
+                    content: lines[i].trim(),
                   };
 
                   if (options.includeContext && options.contextLines > 0) {
@@ -851,12 +861,12 @@ export class VaultManager {
                     match.context = {
                       before: lines.slice(contextStart, i).map((l, idx) => ({
                         line: contextStart + idx + 1,
-                        content: l.trim()
+                        content: l.trim(),
                       })),
                       after: lines.slice(i + 1, contextEnd + 1).map((l, idx) => ({
                         line: i + 2 + idx,
-                        content: l.trim()
-                      }))
+                        content: l.trim(),
+                      })),
                     };
                   }
 
@@ -864,7 +874,7 @@ export class VaultManager {
                 }
               }
             }
-          } catch (err) {
+          } catch (_err) {
             // Skip files that can't be read
           }
         }
@@ -895,7 +905,7 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       totalBacklinks: backlinks.reduce((sum, f) => sum + f.links.length, 0),
       filesLinking: backlinks.length,
-      results: backlinks
+      results: backlinks,
     };
   }
 
@@ -903,7 +913,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -913,7 +923,13 @@ export class VaultManager {
 
       if (entry.isDirectory()) {
         if (entry.name.startsWith('.')) continue;
-        await this._findBacklinksInDirectory(fullPath, relativePath, noteName, originalPath, backlinks);
+        await this._findBacklinksInDirectory(
+          fullPath,
+          relativePath,
+          noteName,
+          originalPath,
+          backlinks
+        );
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         if (relativePath === originalPath) continue;
 
@@ -928,11 +944,12 @@ export class VaultManager {
             const linkLower = linkTarget.toLowerCase();
             const noteNameLower = noteName.toLowerCase();
 
-            if (linkLower === noteNameLower ||
-                linkLower === noteNameLower + '.md' ||
-                linkLower === originalPath.toLowerCase() ||
-                linkLower === originalPath.toLowerCase().replace(/\.md$/, '')) {
-
+            if (
+              linkLower === noteNameLower ||
+              linkLower === noteNameLower + '.md' ||
+              linkLower === originalPath.toLowerCase() ||
+              linkLower === originalPath.toLowerCase().replace(/\.md$/, '')
+            ) {
               const beforeMatch = content.slice(0, match.index);
               const lineNumber = (beforeMatch.match(/\n/g) || []).length + 1;
               const lines = content.split('\n');
@@ -941,7 +958,7 @@ export class VaultManager {
               fileBacklinks.push({
                 link: linkTarget,
                 line: lineNumber,
-                context: lineContent
+                context: lineContent,
               });
             }
           }
@@ -949,10 +966,10 @@ export class VaultManager {
           if (fileBacklinks.length > 0) {
             backlinks.push({
               path: relativePath,
-              links: fileBacklinks
+              links: fileBacklinks,
             });
           }
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -973,7 +990,7 @@ export class VaultManager {
       directory: directory || '(entire vault)',
       totalBrokenLinks: brokenLinks.reduce((sum, f) => sum + f.brokenLinks.length, 0),
       filesWithBrokenLinks: brokenLinks.length,
-      results: brokenLinks
+      results: brokenLinks,
     };
   }
 
@@ -981,7 +998,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -1008,7 +1025,7 @@ export class VaultManager {
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch (err) {
+    } catch (_err) {
       return;
     }
 
@@ -1029,7 +1046,11 @@ export class VaultManager {
           while ((match = wikiLinkRegex.exec(content)) !== null) {
             const linkTarget = match[1].trim();
 
-            if (linkTarget.startsWith('http') || linkTarget.startsWith('#') || linkTarget.startsWith('!')) {
+            if (
+              linkTarget.startsWith('http') ||
+              linkTarget.startsWith('#') ||
+              linkTarget.startsWith('!')
+            ) {
               continue;
             }
 
@@ -1037,10 +1058,11 @@ export class VaultManager {
             const linkWithMd = linkTarget + '.md';
             const linkWithMdLower = linkWithMd.toLowerCase();
 
-            const exists = existingNotes.has(linkTarget) ||
-                          existingNotes.has(linkLower) ||
-                          existingNotes.has(linkWithMd) ||
-                          existingNotes.has(linkWithMdLower);
+            const exists =
+              existingNotes.has(linkTarget) ||
+              existingNotes.has(linkLower) ||
+              existingNotes.has(linkWithMd) ||
+              existingNotes.has(linkWithMdLower);
 
             if (!exists) {
               const beforeMatch = content.slice(0, match.index);
@@ -1048,7 +1070,7 @@ export class VaultManager {
 
               fileBrokenLinks.push({
                 link: linkTarget,
-                line: lineNumber
+                line: lineNumber,
               });
             }
           }
@@ -1056,10 +1078,10 @@ export class VaultManager {
           if (fileBrokenLinks.length > 0) {
             brokenLinks.push({
               path: relativePath,
-              brokenLinks: fileBrokenLinks
+              brokenLinks: fileBrokenLinks,
             });
           }
-        } catch (err) {
+        } catch (_err) {
           // Skip files that can't be read
         }
       }
@@ -1078,7 +1100,7 @@ export class VaultManager {
 
   async appendToSection(notePath, heading, content) {
     const fullPath = path.join(this.vaultPath, notePath);
-    let fileContent = await fs.readFile(fullPath, 'utf-8');
+    const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
     const match = fileContent.match(headingRegex);
@@ -1101,9 +1123,7 @@ export class VaultManager {
     }
 
     const newContent =
-      fileContent.slice(0, insertPos) +
-      '\n' + content + '\n' +
-      fileContent.slice(insertPos);
+      fileContent.slice(0, insertPos) + '\n' + content + '\n' + fileContent.slice(insertPos);
 
     await fs.writeFile(fullPath, newContent, 'utf-8');
     return { path: notePath, heading, appended: true };
@@ -1111,7 +1131,7 @@ export class VaultManager {
 
   async replaceSection(notePath, heading, newContent) {
     const fullPath = path.join(this.vaultPath, notePath);
-    let fileContent = await fs.readFile(fullPath, 'utf-8');
+    const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
     const match = fileContent.match(headingRegex);
@@ -1135,7 +1155,9 @@ export class VaultManager {
 
     const updatedContent =
       fileContent.slice(0, match.index + match[0].length) +
-      '\n' + newContent + '\n' +
+      '\n' +
+      newContent +
+      '\n' +
       fileContent.slice(sectionEnd);
 
     await fs.writeFile(fullPath, updatedContent, 'utf-8');
@@ -1144,7 +1166,7 @@ export class VaultManager {
 
   async insertAtMarker(notePath, marker, content, position = 'after') {
     const fullPath = path.join(this.vaultPath, notePath);
-    let fileContent = await fs.readFile(fullPath, 'utf-8');
+    const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const markerIndex = fileContent.indexOf(marker);
     if (markerIndex === -1) {
@@ -1159,9 +1181,7 @@ export class VaultManager {
     }
 
     const newContent =
-      fileContent.slice(0, insertPos) +
-      '\n' + content + '\n' +
-      fileContent.slice(insertPos);
+      fileContent.slice(0, insertPos) + '\n' + content + '\n' + fileContent.slice(insertPos);
 
     await fs.writeFile(fullPath, newContent, 'utf-8');
     return { path: notePath, marker, inserted: true, position };
@@ -1212,7 +1232,7 @@ export class VaultManager {
         headings.push({
           level: headingLevel,
           text: headingText,
-          full: match[1] + ' ' + headingText
+          full: match[1] + ' ' + headingText,
         });
       }
     }
@@ -1230,7 +1250,7 @@ export class VaultManager {
       caseSensitive = true,
       wholeWord = false,
       recursive = false,
-      dryRun = false
+      dryRun = false,
     } = options;
 
     const fullPath = path.join(this.vaultPath, targetPath);
@@ -1264,7 +1284,7 @@ export class VaultManager {
       filesModified,
       totalReplacements,
       changes,
-      dryRun
+      dryRun,
     };
   }
 
@@ -1289,14 +1309,7 @@ export class VaultManager {
           );
         }
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
-        await this._findReplaceInFile(
-          fullPath,
-          entryRelativePath,
-          find,
-          replace,
-          options,
-          changes
-        );
+        await this._findReplaceInFile(fullPath, entryRelativePath, find, replace, options, changes);
       }
     }
   }
@@ -1333,7 +1346,7 @@ export class VaultManager {
       changes.push({
         file: relativePath,
         replacements,
-        preview: this._getReplacementPreview(originalContent, content, find, 3)
+        preview: this._getReplacementPreview(originalContent, content, find, 3),
       });
     }
   }
@@ -1347,7 +1360,7 @@ export class VaultManager {
         examples.push({
           line: i + 1,
           before: lines[i].trim(),
-          after: newContent.split('\n')[i].trim()
+          after: newContent.split('\n')[i].trim(),
         });
       }
     }

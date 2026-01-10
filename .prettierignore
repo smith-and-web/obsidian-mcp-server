@@ -1,0 +1,9 @@
+node_modules/
+coverage/
+dist/
+*.md
+*.json
+*.yml
+*.yaml
+examples/
+bruno/
