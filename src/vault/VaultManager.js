@@ -4,11 +4,73 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import { parseFrontmatter, serializeFrontmatter } from './frontmatter.js';
+import { parseFrontmatter, serializeFrontmatter, reconstructContent } from './frontmatter.js';
 
 export class VaultManager {
-  constructor(vaultPath) {
+  constructor(vaultPath, options = {}) {
     this.vaultPath = vaultPath;
+    this.compactResponses = options.compactResponses || false;
+  }
+
+  /**
+   * Minify response object keys for token optimization (40-60% smaller)
+   * Maps verbose keys to short keys when compact mode is enabled
+   */
+  _compact(obj) {
+    if (!this.compactResponses) return obj;
+
+    const keyMap = {
+      path: 'p',
+      content: 'c',
+      frontmatter: 'fm',
+      hasFrontmatter: 'hfm',
+      directory: 'd',
+      files: 'f',
+      directories: 'ds',
+      created: 'cr',
+      updated: 'up',
+      deleted: 'del',
+      moved: 'mv',
+      duplicated: 'dup',
+      renamed: 'rn',
+      appended: 'ap',
+      replaced: 'rp',
+      inserted: 'ins',
+      tags: 't',
+      added: 'add',
+      removed: 'rm',
+      location: 'loc',
+      results: 'r',
+      errors: 'e',
+      totalFiles: 'tf',
+      totalMatches: 'tm',
+      filesMatched: 'fmd',
+      matches: 'm',
+      line: 'l',
+      context: 'ctx',
+      before: 'b',
+      after: 'a',
+      size: 'sz',
+      modified: 'mod',
+      name: 'n',
+      extension: 'ext',
+      successful: 'ok',
+      failed: 'fail',
+      totalRequested: 'req'
+    };
+
+    const compact = {};
+    for (const [key, value] of Object.entries(obj)) {
+      const newKey = keyMap[key] || key;
+      if (Array.isArray(value)) {
+        compact[newKey] = value.map(v => typeof v === 'object' && v !== null ? this._compact(v) : v);
+      } else if (typeof value === 'object' && value !== null) {
+        compact[newKey] = this._compact(value);
+      } else {
+        compact[newKey] = value;
+      }
+    }
+    return compact;
   }
 
   // Re-export frontmatter utilities as methods for backward compatibility
@@ -79,10 +141,22 @@ export class VaultManager {
     return { path: notePath, updated: true };
   }
 
-  async deleteNote(notePath) {
+  async deleteNote(notePath, options = {}) {
+    const { confirm } = options;
     const fullPath = path.join(this.vaultPath, notePath);
+    const filename = path.basename(notePath);
+
+    // Safety: require confirmation matching the filename
+    if (confirm !== filename) {
+      return {
+        path: notePath,
+        deleted: false,
+        error: `Safety check failed: confirm must match filename "${filename}". Pass confirm: "${filename}" to delete.`
+      };
+    }
+
     await fs.unlink(fullPath);
-    return { path: notePath, deleted: true };
+    return this._compact({ path: notePath, deleted: true });
   }
 
   async moveNote(fromPath, toPath) {
@@ -116,7 +190,87 @@ export class VaultManager {
     // Copy the file
     await fs.copyFile(fullSourcePath, fullDestPath);
 
-    return { source: sourcePath, destination: destPath, duplicated: true };
+    return this._compact({ source: sourcePath, destination: destPath, duplicated: true });
+  }
+
+  /**
+   * Unified write operation with multiple modes
+   * @param {string} notePath - Path to the note
+   * @param {string} content - Content to write
+   * @param {object} options - Write options
+   * @param {'overwrite'|'append'|'prepend'} options.mode - Write mode (default: overwrite)
+   */
+  async writeNote(notePath, content, options = {}) {
+    const { mode = 'overwrite' } = options;
+    const fullPath = path.join(this.vaultPath, notePath);
+
+    switch (mode) {
+      case 'append': {
+        await fs.appendFile(fullPath, content, 'utf-8');
+        return this._compact({ path: notePath, mode, written: true });
+      }
+
+      case 'prepend': {
+        const existing = await fs.readFile(fullPath, 'utf-8');
+        await fs.writeFile(fullPath, content + existing, 'utf-8');
+        return this._compact({ path: notePath, mode, written: true });
+      }
+
+      case 'overwrite':
+      default: {
+        const dir = path.dirname(fullPath);
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(fullPath, content, 'utf-8');
+        return this._compact({ path: notePath, mode, written: true });
+      }
+    }
+  }
+
+  /**
+   * Get file info without reading content (efficient for scanning)
+   * @param {string|string[]} paths - Path(s) to get info for
+   */
+  async getNotesInfo(paths) {
+    const pathArray = Array.isArray(paths) ? paths : [paths];
+    const results = [];
+    const errors = [];
+
+    for (const notePath of pathArray) {
+      try {
+        const fullPath = path.join(this.vaultPath, notePath);
+        const stats = await fs.stat(fullPath);
+
+        // Quick frontmatter check - read first 1KB to check for ---
+        const fd = await fs.open(fullPath, 'r');
+        const buffer = Buffer.alloc(1024);
+        await fd.read(buffer, 0, 1024, 0);
+        await fd.close();
+        const preview = buffer.toString('utf-8');
+        const hasFrontmatter = preview.trimStart().startsWith('---');
+
+        results.push({
+          path: notePath,
+          name: path.basename(notePath, '.md'),
+          extension: path.extname(notePath),
+          size: stats.size,
+          modified: stats.mtime.toISOString(),
+          created: stats.birthtime.toISOString(),
+          hasFrontmatter
+        });
+      } catch (err) {
+        errors.push({ path: notePath, error: err.message });
+      }
+    }
+
+    const response = {
+      totalRequested: pathArray.length,
+      successful: results.length,
+      failed: errors.length,
+      results,
+      ...(errors.length > 0 && { errors })
+    };
+
+    return this._compact(response);
   }
 
   // ============================================

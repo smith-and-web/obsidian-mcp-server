@@ -18,12 +18,46 @@ body:json {
     "params": {
       "name": "delete-note",
       "arguments": {
-        "path": "test-note.md"
+        "path": "test-note.md",
+        "confirm": "test-note.md"
       }
     }
   }
 }
 
 docs {
-  Delete a note from the vault.
+  # Delete Note Tool
+
+  Delete a note from the vault. Requires confirmation for safety.
+
+  ## Safety Check
+
+  The `confirm` parameter must match the filename (basename) of the note being deleted.
+  This prevents accidental deletions.
+
+  ## Parameters
+
+  - `path` (required): Path to the note to delete
+  - `confirm` (required): Must match the filename (e.g., "note.md")
+
+  ## Example
+
+  To delete `Projects/old-project.md`:
+
+  ```json
+  {
+    "path": "Projects/old-project.md",
+    "confirm": "old-project.md"
+  }
+  ```
+
+  ## Error Response
+
+  If confirm doesn't match, you'll get:
+  ```json
+  {
+    "deleted": false,
+    "error": "Safety check failed: confirm must match filename \"old-project.md\". Pass confirm: \"old-project.md\" to delete."
+  }
+  ```
 }

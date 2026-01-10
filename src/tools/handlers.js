@@ -22,11 +22,15 @@ export async function executeToolCall(name, args, vaultManager) {
     case 'edit-note':
       return vaultManager.editNote(args.path, args.content);
     case 'delete-note':
-      return vaultManager.deleteNote(args.path);
+      return vaultManager.deleteNote(args.path, { confirm: args.confirm });
     case 'move-note':
       return vaultManager.moveNote(args.from, args.to);
     case 'duplicate-note':
       return vaultManager.duplicateNote(args.source, args.destination);
+    case 'write-note':
+      return vaultManager.writeNote(args.path, args.content, { mode: args.mode });
+    case 'get-notes-info':
+      return vaultManager.getNotesInfo(args.paths);
 
     // Directory Operations
     case 'create-directory':

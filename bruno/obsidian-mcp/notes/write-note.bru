@@ -1,0 +1,62 @@
+meta {
+  name: write-note
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "write-note",
+      "arguments": {
+        "path": "test-write.md",
+        "content": "# Test Write\n\nThis note was written with write-note tool.",
+        "mode": "overwrite"
+      }
+    }
+  }
+}
+
+docs {
+  # Write Note Tool
+
+  Writes content to a note with multiple modes:
+  - `overwrite` (default): Replace all content, creates file if it doesn't exist
+  - `append`: Add content to the end of the file
+  - `prepend`: Add content to the beginning of the file
+
+  ## Parameters
+
+  - `path` (required): Path to the note
+  - `content` (required): Content to write
+  - `mode` (optional): Write mode - 'overwrite', 'append', or 'prepend'
+
+  ## Example: Append mode
+
+  ```json
+  {
+    "path": "journal/2025-01.md",
+    "content": "\n## New Entry\nAdded this at the end.",
+    "mode": "append"
+  }
+  ```
+
+  ## Example: Prepend mode
+
+  ```json
+  {
+    "path": "notes/todo.md",
+    "content": "# URGENT: New task at top\n\n",
+    "mode": "prepend"
+  }
+  ```
+}

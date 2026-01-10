@@ -5,13 +5,15 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 ## Features
 
 ### Note Management
-- **CRUD Operations**: Create, read, update, and delete notes
+- **CRUD Operations**: Create, read, update, and delete notes (with safety confirmation)
+- **Write Modes**: Overwrite, append, or prepend content
 - **Batch Reading**: Read multiple notes in a single request
+- **File Info**: Get metadata without reading content (efficient for large vaults)
 - **Move/Duplicate**: Reorganize your vault structure
 - **Section Operations**: Read, append, or replace specific sections by heading
 
 ### Frontmatter & Tags
-- **Frontmatter Parsing**: Get/set YAML frontmatter as structured JSON
+- **Frontmatter Parsing**: Get/set YAML frontmatter as structured JSON (powered by gray-matter)
 - **Tag Management**: Add/remove tags (frontmatter or inline)
 - **Tag Auditing**: Find notes missing required tags
 - **Tag Search**: List all tags with usage counts
@@ -25,6 +27,11 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 ### Directory Operations
 - **Create/Delete/Rename**: Full directory management
 - **List Contents**: Browse vault structure
+
+### Performance
+- **Token Optimization**: Optional compact response mode (40-60% smaller responses)
+- **Efficient Scanning**: Get file info without reading content
+- **SSE Transport**: Remote access without local installation
 
 ## Quick Start
 
@@ -111,9 +118,11 @@ Or for a remote server with HTTPS:
 | `read-multiple-notes` | Batch read multiple notes |
 | `create-note` | Create a new note |
 | `edit-note` | Replace note contents |
-| `delete-note` | Delete a note |
+| `write-note` | Write with modes: overwrite, append, or prepend |
+| `delete-note` | Delete a note (requires confirmation) |
 | `move-note` | Move/rename a note |
 | `duplicate-note` | Copy a note to a new location |
+| `get-notes-info` | Get file metadata without reading content |
 
 ### Directory Operations
 | Tool | Description |
@@ -200,6 +209,7 @@ obsidian-mcp-server/
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
 | `VAULT_PATH` | `/vault` | Path to Obsidian vault |
+| `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
 
 ## API Endpoints
 
@@ -309,7 +319,7 @@ Docker:
 
 ### API Testing with Bruno
 
-The repository includes a [Bruno](https://www.usebruno.com/) collection for testing all 29 tools.
+The repository includes a [Bruno](https://www.usebruno.com/) collection for testing all 31 tools.
 
 1. Install Bruno (free, open-source API client)
 2. Open the collection from `./bruno/obsidian-mcp`

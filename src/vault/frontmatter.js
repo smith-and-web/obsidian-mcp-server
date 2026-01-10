@@ -1,6 +1,9 @@
 /**
  * Frontmatter parsing and serialization utilities
+ * Uses gray-matter for robust YAML parsing
  */
+
+import matter from 'gray-matter';
 
 /**
  * Parse YAML frontmatter from markdown content
@@ -8,80 +11,44 @@
  * @returns {{ frontmatter: object|null, body: string, raw: string|null }}
  */
 export function parseFrontmatter(content) {
-  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---/;
-  const match = content.match(frontmatterRegex);
+  try {
+    const parsed = matter(content);
 
-  if (!match) {
+    // Check if there's actually frontmatter (gray-matter always returns data object)
+    const hasFrontmatter = content.trim().startsWith('---');
+
+    if (!hasFrontmatter || Object.keys(parsed.data).length === 0) {
+      return { frontmatter: null, body: content, raw: null };
+    }
+
+    return {
+      frontmatter: parsed.data,
+      body: parsed.content,
+      raw: parsed.matter // The raw YAML string between ---
+    };
+  } catch (err) {
+    // If gray-matter fails, return content as body with no frontmatter
     return { frontmatter: null, body: content, raw: null };
   }
-
-  const raw = match[1];
-  const frontmatter = {};
-
-  // Simple YAML parser for common frontmatter patterns
-  const lines = raw.split('\n');
-  let currentKey = null;
-  let currentValue = [];
-  let inArray = false;
-
-  for (const line of lines) {
-    // Check for array item
-    if (inArray && line.match(/^\s+-\s+/)) {
-      const value = line.replace(/^\s+-\s+/, '').trim();
-      currentValue.push(value.replace(/^["']|["']$/g, ''));
-      continue;
-    }
-
-    // If we were building an array, save it
-    if (inArray && currentKey) {
-      frontmatter[currentKey] = currentValue;
-      currentKey = null;
-      currentValue = [];
-      inArray = false;
-    }
-
-    // Check for key: value pair
-    const keyValueMatch = line.match(/^(\w+):\s*(.*)$/);
-    if (keyValueMatch) {
-      const [, key, value] = keyValueMatch;
-
-      if (value === '' || value === '[]') {
-        // Start of array or empty value
-        currentKey = key;
-        currentValue = [];
-        inArray = true;
-      } else if (value.startsWith('[') && value.endsWith(']')) {
-        // Inline array like [tag1, tag2]
-        const arrayContent = value.slice(1, -1);
-        frontmatter[key] = arrayContent
-          .split(',')
-          .map(v => v.trim().replace(/^["']|["']$/g, ''))
-          .filter(v => v);
-      } else {
-        // Simple value
-        frontmatter[key] = value.replace(/^["']|["']$/g, '');
-      }
-    }
-  }
-
-  // Handle final array if file ends while in array
-  if (inArray && currentKey) {
-    frontmatter[currentKey] = currentValue;
-  }
-
-  const body = content.slice(match[0].length).replace(/^\r?\n/, '');
-
-  return { frontmatter, body, raw };
 }
 
 /**
  * Serialize frontmatter object back to YAML string
  * @param {object} frontmatter - Frontmatter object to serialize
- * @returns {string} YAML string
+ * @returns {string} YAML string (without --- delimiters)
  */
 export function serializeFrontmatter(frontmatter) {
-  const lines = [];
+  // Use gray-matter's stringify but extract just the YAML portion
+  const result = matter.stringify('', frontmatter);
+  // Result is: ---\n{yaml}\n---\n
+  // Extract just the YAML content
+  const match = result.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (match) {
+    return match[1];
+  }
 
+  // Fallback: manual serialization for edge cases
+  const lines = [];
   for (const [key, value] of Object.entries(frontmatter)) {
     if (Array.isArray(value)) {
       if (value.length === 0) {
@@ -94,16 +61,34 @@ export function serializeFrontmatter(frontmatter) {
       }
     } else if (value === null || value === undefined) {
       lines.push(`${key}:`);
+    } else if (typeof value === 'object') {
+      // Nested objects - simple one-level handling
+      lines.push(`${key}:`);
+      for (const [subKey, subValue] of Object.entries(value)) {
+        lines.push(`  ${subKey}: ${subValue}`);
+      }
     } else {
-      // Quote strings that contain special characters
       const strValue = String(value);
-      if (strValue.includes(':') || strValue.includes('#') || strValue.includes("'") || strValue.includes('"')) {
+      if (strValue.includes(':') || strValue.includes('#') || strValue.includes("'") || strValue.includes('"') || strValue.includes('\n')) {
         lines.push(`${key}: "${strValue.replace(/"/g, '\\"')}"`);
       } else {
         lines.push(`${key}: ${strValue}`);
       }
     }
   }
-
   return lines.join('\n');
+}
+
+/**
+ * Reconstruct full file content from frontmatter and body
+ * @param {object} frontmatter - Frontmatter object
+ * @param {string} body - Body content
+ * @returns {string} Full file content with frontmatter
+ */
+export function reconstructContent(frontmatter, body) {
+  if (!frontmatter || Object.keys(frontmatter).length === 0) {
+    return body;
+  }
+  const yaml = serializeFrontmatter(frontmatter);
+  return `---\n${yaml}\n---\n${body}`;
 }

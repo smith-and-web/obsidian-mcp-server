@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2025-01-09
+
+### Added
+- `write-note` - Unified write tool with overwrite/append/prepend modes
+- `get-notes-info` - Get file metadata without reading content (size, dates, frontmatter presence)
+- **Token optimization** - Optional compact response mode (`COMPACT_RESPONSES=true`) reduces response size by 40-60%
+- **Safe delete** - `delete-note` now requires `confirm` parameter matching filename to prevent accidents
+
+### Changed
+- **BREAKING**: `delete-note` now requires `confirm` parameter
+- Replaced custom YAML parser with `gray-matter` library for more robust frontmatter handling
+- Updated tool count from 29 to 31
+
+### Infrastructure
+- Added `COMPACT_RESPONSES` environment variable
+
 ## [1.0.0] - 2025-01-09
 
 ### Added

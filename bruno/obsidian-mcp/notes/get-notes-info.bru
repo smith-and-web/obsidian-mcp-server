@@ -1,0 +1,67 @@
+meta {
+  name: get-notes-info
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/sse
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "tools/call",
+    "params": {
+      "name": "get-notes-info",
+      "arguments": {
+        "paths": [
+          "Welcome.md",
+          "Projects/Project Alpha.md",
+          "Notes/Meeting Notes.md"
+        ]
+      }
+    }
+  }
+}
+
+docs {
+  # Get Notes Info Tool
+
+  Get file metadata without reading full content. Efficient for scanning/auditing large vaults.
+
+  ## Returns for each note:
+  - `path`: File path
+  - `name`: Filename without extension
+  - `extension`: File extension
+  - `size`: File size in bytes
+  - `modified`: Last modified timestamp (ISO 8601)
+  - `created`: Creation timestamp (ISO 8601)
+  - `hasFrontmatter`: Whether the file has YAML frontmatter
+
+  ## Parameters
+
+  - `paths` (required): Single path string or array of paths
+
+  ## Example: Single file
+
+  ```json
+  {
+    "paths": "Welcome.md"
+  }
+  ```
+
+  ## Example: Multiple files
+
+  ```json
+  {
+    "paths": [
+      "Notes/Meeting Notes.md",
+      "Projects/Project Alpha.md"
+    ]
+  }
+  ```
+}

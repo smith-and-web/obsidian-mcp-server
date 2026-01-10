@@ -57,13 +57,14 @@ export const toolDefinitions = [
   },
   {
     name: 'delete-note',
-    description: 'Delete a note',
+    description: 'Delete a note. Requires confirm parameter matching the filename for safety.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Path to the note' },
+        confirm: { type: 'string', description: 'Must match the filename (e.g., "note.md") to confirm deletion' },
       },
-      required: ['path'],
+      required: ['path', 'confirm'],
     },
   },
   {
@@ -88,6 +89,36 @@ export const toolDefinitions = [
         destination: { type: 'string', description: 'Path for the new duplicated note' },
       },
       required: ['source', 'destination'],
+    },
+  },
+  {
+    name: 'write-note',
+    description: 'Write content to a note with multiple modes: overwrite (replace all), append (add to end), or prepend (add to beginning). Creates the file if it doesn\'t exist (for overwrite mode).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Path to the note' },
+        content: { type: 'string', description: 'Content to write' },
+        mode: { type: 'string', enum: ['overwrite', 'append', 'prepend'], description: "Write mode: 'overwrite' (default), 'append', or 'prepend'" },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    name: 'get-notes-info',
+    description: 'Get file info (size, dates, frontmatter presence) for one or more notes without reading full content. Efficient for scanning/auditing large vaults.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        paths: {
+          oneOf: [
+            { type: 'string', description: 'Single note path' },
+            { type: 'array', items: { type: 'string' }, description: 'Array of note paths' }
+          ],
+          description: 'Path(s) to get info for'
+        },
+      },
+      required: ['paths'],
     },
   },
 

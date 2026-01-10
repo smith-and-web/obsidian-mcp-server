@@ -13,6 +13,7 @@ import { corsMiddleware } from './server/middleware.js';
 // Configuration
 const PORT = process.env.PORT || 3000;
 const VAULT_PATH = process.env.VAULT_PATH || '/vault';
+const COMPACT_RESPONSES = process.env.COMPACT_RESPONSES === 'true';
 
 // Initialize Express app
 const app = express();
@@ -22,7 +23,7 @@ app.use(corsMiddleware());
 app.use(express.json());
 
 // Initialize VaultManager
-const vaultManager = new VaultManager(VAULT_PATH);
+const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
 
 // Initialize MCP handlers
 const { handleSSEConnection, handlePostRequest } = createMCPServer(vaultManager);
@@ -50,5 +51,6 @@ app.post('/sse', handlePostRequest);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Obsidian MCP SSE server running on port ${PORT}`);
   console.log(`Vault path: ${VAULT_PATH}`);
+  console.log(`Compact responses: ${COMPACT_RESPONSES}`);
   console.log(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
 });
