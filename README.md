@@ -313,6 +313,7 @@ obsidian-mcp-server/
 | `PORT` | `3000` | Server port |
 | `VAULT_PATH` | `/vault` | Path to Obsidian vault |
 | `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
+| `API_KEY` | *(none)* | API key for authentication. When set, requires Bearer token or query param |
 
 ## API Endpoints
 
@@ -323,16 +324,82 @@ obsidian-mcp-server/
 | `/sse` | POST | Direct MCP protocol calls |
 | `/message` | POST | SSE transport messages |
 
-## Security Considerations
+## Authentication
 
-- **Authentication**: API key authentication is planned but not yet implemented. For now, secure access through:
-  - Network-level security (firewall, VPN)
-  - Reverse proxy with authentication (NGINX, Traefik)
-  - SSL/TLS termination
+The server supports optional API key authentication. When `API_KEY` is set, all `/sse` and `/message` endpoints require authentication. The `/health` endpoint remains public.
+
+### Enabling Authentication
+
+Set the `API_KEY` environment variable:
+
+```bash
+# Docker
+docker run -d \
+  --name obsidian-mcp \
+  -v /path/to/vault:/vault:rw \
+  -p 3001:3000 \
+  -e VAULT_PATH=/vault \
+  -e API_KEY=your-secret-key \
+  ghcr.io/smith-and-web/obsidian-mcp-server:latest
+
+# npx
+API_KEY=your-secret-key VAULT_PATH=/path/to/vault npx @smith-and-web/obsidian-mcp-server
+```
+
+### Authentication Methods
+
+Clients can authenticate using either method:
+
+1. **Authorization Header** (recommended):
+   ```
+   Authorization: Bearer your-secret-key
+   ```
+
+2. **Query Parameter**:
+   ```
+   /sse?api_key=your-secret-key
+   ```
+
+### Client Configuration with API Key
+
+**Claude Desktop / Cursor (via mcp-remote):**
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": [
+        "-y", "mcp-remote",
+        "https://your-domain.com/sse?api_key=your-secret-key"
+      ]
+    }
+  }
+}
+```
+
+**Direct npx with API key:**
+```json
+{
+  "mcpServers": {
+    "obsidian": {
+      "command": "npx",
+      "args": ["@smith-and-web/obsidian-mcp-server"],
+      "env": {
+        "VAULT_PATH": "/path/to/your/vault",
+        "API_KEY": "your-secret-key"
+      }
+    }
+  }
+}
+```
+
+### Security Considerations
+
+- **Generate strong keys**: Use a random string of at least 32 characters
+- **HTTPS required**: Always use HTTPS when exposing the server remotely to prevent key interception
 - **File Access**: The server has full read/write access to the mounted vault
-- **CORS**: Currently allows all origins. Restrict in production if needed.
-
-> **TODO**: API key authentication will be added in a future release, allowing you to secure the server with a simple bearer token or query parameter.
+- **CORS**: Currently allows all origins. Restrict in production if needed
+- **Network security**: Consider additional layers like VPN or firewall rules for sensitive vaults
 
 ## Deployment with NGINX Proxy Manager
 
