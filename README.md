@@ -42,6 +42,10 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 - **Efficient Scanning**: Get file info without reading content
 - **SSE Transport**: Remote access without local installation
 
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/smith-and-web-obsidian-mcp-server).
+
 ## Quick Start
 
 ### npx (Quickest)
