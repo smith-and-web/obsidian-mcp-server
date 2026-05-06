@@ -31,7 +31,8 @@ const auth = authMiddleware({ apiKey: API_KEY });
 const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
 
 // Initialize MCP handlers
-const { handleSSEConnection, handlePostRequest } = createMCPServer(vaultManager);
+const { handleSSEConnection, handleMessagePost, handlePostRequest } =
+  createMCPServer(vaultManager);
 
 // Health check endpoint (public - no auth required)
 app.get('/health', (_req, res) => {
@@ -43,15 +44,16 @@ app.get('/health', (_req, res) => {
 });
 
 // SSE endpoint for MCP (GET) - protected
-app.get('/sse', auth, async (_req, res) => {
+app.get('/sse', auth, async (req, res) => {
   console.log('New SSE connection');
-  await handleSSEConnection(res);
+  await handleSSEConnection(req, res);
 });
 
-// POST endpoint for messages (used by SSE transport) - protected
-app.post('/message', auth, express.json(), async (_req, res) => {
-  res.json({ status: 'ok' });
-});
+// POST endpoint for messages (used by SSE transport) - protected.
+// Standard MCP-over-SSE clients (e.g. mcp-remote) POST JSON-RPC here using
+// the sessionId advertised in the SSE `endpoint` event; responses come back
+// over the SSE stream.
+app.post('/message', auth, handleMessagePost);
 
 // Direct POST endpoint for MCP protocol messages - protected
 app.post('/sse', auth, handlePostRequest);
