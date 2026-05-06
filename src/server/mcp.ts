@@ -19,7 +19,8 @@ interface MCPRequest {
 }
 
 interface MCPServerHandlers {
-  handleSSEConnection: (res: Response) => Promise<void>;
+  handleSSEConnection: (req: Request, res: Response) => Promise<void>;
+  handleMessagePost: (req: Request, res: Response) => Promise<void>;
   handlePostRequest: (req: Request, res: Response) => Promise<Response | void>;
 }
 
@@ -27,11 +28,23 @@ interface MCPServerHandlers {
  * Create and configure an MCP server instance
  */
 export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
+  // Track active SSE transports by sessionId so /message POSTs can be routed
+  // back to the correct stream. Required by the standard MCP-over-SSE flow:
+  // the SSE stream emits an `endpoint` event pointing at /message?sessionId=...,
+  // and the client POSTs JSON-RPC messages there. We must hand those off to
+  // transport.handlePostMessage() so responses are streamed back over SSE.
+  const transports = new Map<string, SSEServerTransport>();
+
   /**
    * Handle SSE connection (GET /sse)
    */
-  async function handleSSEConnection(res: Response): Promise<void> {
+  async function handleSSEConnection(req: Request, res: Response): Promise<void> {
     const transport = new SSEServerTransport('/message', res);
+    transports.set(transport.sessionId, transport);
+    req.on('close', () => {
+      transports.delete(transport.sessionId);
+    });
+
     const server = new Server(
       {
         name: 'obsidian-mcp',
@@ -75,7 +88,27 @@ export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
     });
 
     await server.connect(transport);
-    console.log('MCP server connected via SSE');
+    console.log(`MCP server connected via SSE (session: ${transport.sessionId})`);
+  }
+
+  /**
+   * Handle POST /message — the standard MCP-over-SSE message channel.
+   * Routes JSON-RPC requests to the SSEServerTransport for the matching
+   * sessionId; responses are streamed back over the SSE connection.
+   */
+  async function handleMessagePost(req: Request, res: Response): Promise<void> {
+    const sessionId = req.query.sessionId as string | undefined;
+    if (!sessionId) {
+      res.status(400).json({ error: 'Missing sessionId query parameter' });
+      return;
+    }
+    const transport = transports.get(sessionId);
+    if (!transport) {
+      res.status(404).json({ error: `No active SSE session for ${sessionId}` });
+      return;
+    }
+    // Pass parsed body since global express.json() already consumed the stream.
+    await transport.handlePostMessage(req, res, req.body);
   }
 
   /**
@@ -150,6 +183,7 @@ export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
 
   return {
     handleSSEConnection,
+    handleMessagePost,
     handlePostRequest,
   };
 }
