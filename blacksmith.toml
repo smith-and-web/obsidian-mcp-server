@@ -1,5 +1,9 @@
 # Blacksmith toolchain definition for this target repo.
 # Consumed by the blacksmith orchestrator's test-gate and review steps.
-
-test_cmd = "npm test"
+#
+# The gate runs each command from a FRESH git worktree, which has no node_modules
+# (it's gitignored). So test_cmd must be self-contained: install deps, then test.
+# The gate uses shlex (no shell), so chaining is wrapped in `sh -c`. lint_cmd runs
+# only after test passes, by which point node_modules already exists in the worktree.
+test_cmd = 'sh -c "npm ci && npm test"'
 lint_cmd = "npm run lint"
