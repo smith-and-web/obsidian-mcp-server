@@ -173,6 +173,36 @@ export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
       }
     }
 
+    if (method === 'resources/list') {
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          resources: [],
+        },
+      });
+    }
+
+    if (method === 'resources/templates/list') {
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          resourceTemplates: [],
+        },
+      });
+    }
+
+    if (method === 'prompts/list') {
+      return res.json({
+        jsonrpc: '2.0',
+        id,
+        result: {
+          prompts: [],
+        },
+      });
+    }
+
     // Default response for other methods
     return res.json({
       jsonrpc: '2.0',
