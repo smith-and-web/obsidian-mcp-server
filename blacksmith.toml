@@ -1,0 +1,5 @@
+# Blacksmith toolchain definition for this target repo.
+# Consumed by the blacksmith orchestrator's test-gate and review steps.
+
+test_cmd = "npm test"
+lint_cmd = "npm run lint"
