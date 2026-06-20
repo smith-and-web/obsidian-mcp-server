@@ -31,8 +31,7 @@ const auth = authMiddleware({ apiKey: API_KEY });
 const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
 
 // Initialize MCP handlers
-const { handleSSEConnection, handleMessagePost, handlePostRequest } =
-  createMCPServer(vaultManager);
+const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(vaultManager);
 
 // Health check endpoint (public - no auth required)
 app.get('/health', (_req, res) => {
