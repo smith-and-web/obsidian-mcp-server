@@ -40,7 +40,7 @@
   },
   "homepage": "https://github.com/smith-and-web/obsidian-mcp-server#readme",
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.19.0"
   },
   "files": [
     "dist",

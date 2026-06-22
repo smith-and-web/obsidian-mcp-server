@@ -4,7 +4,7 @@
 [![npm](https://img.shields.io/npm/v/@smith-and-web/obsidian-mcp-server)](https://www.npmjs.com/package/@smith-and-web/obsidian-mcp-server)
 [![Docker](https://img.shields.io/badge/ghcr.io-latest-blue)](https://ghcr.io/smith-and-web/obsidian-mcp-server)
 [![License](https://img.shields.io/github/license/smith-and-web/obsidian-mcp-server)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Sponsor](https://img.shields.io/github/sponsors/smith-and-web?label=Sponsor&logo=github)](https://github.com/sponsors/smith-and-web)
