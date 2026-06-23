@@ -6,7 +6,7 @@ interact with an Obsidian vault (notes, frontmatter, tags, search, links) over a
 ## Stack
 
 - **Language:** TypeScript 5.x, ES modules (`"type": "module"`). Use `import`/`export`, never `require`.
-- **Runtime:** Node.js >= 18. Build target is `dist/` via `tsc`.
+- **Runtime:** Node.js >= 20.19. Build target is `dist/` via `tsc`.
 - **HTTP:** Express 5.
 - **MCP:** `@modelcontextprotocol/sdk`.
 - **Frontmatter:** `gray-matter`.

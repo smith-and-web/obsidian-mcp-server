@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TypeScript Conversion**: Entire codebase converted to TypeScript for improved type safety
 - Added TypeScript build step to CI pipeline
 - Updated ESLint configuration for TypeScript support
+- **BREAKING**: Raised minimum Node.js version to >=20.19.0 (dropped Node 18, which reached end-of-life in April 2025). Required by the vitest 4.x toolchain, which no longer supports Node 18.
 
 ### Infrastructure
 - Added `@typescript-eslint/parser` and `@typescript-eslint/eslint-plugin`
 - Updated Dockerfile to build TypeScript before running
 - Added `npm run build` script and `prepublishOnly` hook
+- Bumped dev dependencies via Dependabot (`@modelcontextprotocol/sdk` 1.25.3→1.29.0, vitest 4.0.18→4.1.9, and others)
+- Dropped Node 18 from the CI test matrix (now tests Node 20 and 22)
 
 ## [1.1.0] - 2025-01-09
 
