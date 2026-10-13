@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Ollama embedder: an unset `EMBED_BATCH_SIZE` reached the embedder as an explicit `undefined`, which overrode the default batch size and made every embed call return nothing (indexer error `chunks and embeddings length mismatch`, `semantic-search` error `expected array or sparse vector`). Defaults now apply to `undefined` options.
+
 ## [1.5.0] - 2026-10-13
 
 ### Added
