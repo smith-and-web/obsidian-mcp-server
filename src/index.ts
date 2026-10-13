@@ -10,6 +10,8 @@ import express from 'express';
 import { VaultManager } from './vault/VaultManager.js';
 import { createMCPServer } from './server/mcp.js';
 import { corsMiddleware, authMiddleware } from './server/middleware.js';
+import { readIndexConfig } from './index/config.js';
+import { SearchService } from './index/SearchService.js';
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -30,8 +32,22 @@ const auth = authMiddleware({ apiKey: API_KEY });
 // Initialize VaultManager
 const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
 
+// Optional semantic search (pgvector + Ollama), enabled by DATABASE_URL
+const indexConfig = readIndexConfig();
+let search: SearchService | null = null;
+if (indexConfig) {
+  try {
+    search = await SearchService.create(indexConfig, VAULT_PATH);
+  } catch (err) {
+    console.error(`Semantic search disabled: ${(err as Error).message}`);
+  }
+}
+
 // Initialize MCP handlers
-const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(vaultManager);
+const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(
+  vaultManager,
+  search
+);
 
 // Health check endpoint (public - no auth required)
 app.get('/health', (_req, res) => {
@@ -39,6 +55,7 @@ app.get('/health', (_req, res) => {
     status: 'ok',
     vault: VAULT_PATH,
     auth: API_KEY ? 'enabled' : 'disabled',
+    semanticSearch: search ? 'enabled' : 'disabled',
   });
 });
 
@@ -63,5 +80,6 @@ app.listen(PORT, () => {
   console.log(`Vault path: ${VAULT_PATH}`);
   console.log(`Compact responses: ${COMPACT_RESPONSES}`);
   console.log(`Authentication: ${API_KEY ? 'enabled' : 'disabled'}`);
+  console.log(`Semantic search: ${search ? `enabled (${search.embedder.model})` : 'disabled'}`);
   console.log(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
 });

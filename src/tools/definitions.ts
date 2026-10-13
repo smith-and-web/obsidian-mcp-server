@@ -535,3 +535,77 @@ export const toolDefinitions: ToolDefinition[] = [
     },
   },
 ];
+
+// ============================================
+// Semantic Search (optional; registered only when DATABASE_URL is set)
+// ============================================
+export const semanticToolDefinitions: ToolDefinition[] = [
+  {
+    name: 'semantic-search',
+    description:
+      'Search the vault by meaning. Hybrid vector + full-text retrieval over heading-aware chunks, fused with reciprocal rank fusion. Returns the best-matching chunks with their note path, heading path and a snippet. Use this before search-vault when you do not know the exact words; use search-vault for exact strings. Requires the pgvector index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Natural-language query' },
+        k: { type: 'number', description: 'Number of chunks to return (default: 8, max: 50)' },
+        mode: {
+          type: 'string',
+          enum: ['hybrid', 'vector', 'text'],
+          description: 'hybrid (default), vector only, or full-text only',
+        },
+        directory: { type: 'string', description: 'Limit to notes under this vault directory' },
+        tags: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Only notes carrying at least one of these frontmatter tags',
+        },
+        type: { type: 'string', description: "Only notes whose frontmatter 'type' equals this" },
+        status: {
+          type: 'string',
+          description: "Only notes whose frontmatter 'status' equals this",
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'similar-notes',
+    description:
+      'Find notes most similar to a given note, by comparing whole-note embeddings. Useful for "what else do I have about this" and for spotting duplicates. Requires the pgvector index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Vault-relative path of the note' },
+        k: { type: 'number', description: 'Number of notes to return (default: 8, max: 50)' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'index-status',
+    description:
+      'Report the state of the semantic index: embedding model, document and chunk counts, the last indexer run and how long ago it finished. Check this when search results look stale.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'reindex-note',
+    description:
+      'Re-index one note now, bypassing the change detection. Use after a bulk edit, or to confirm the pipeline works end to end. Requires the pgvector index.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Vault-relative path of the note' },
+      },
+      required: ['path'],
+    },
+  },
+];
+
+/**
+ * Tool list for a server instance: the core tools, plus the semantic tools
+ * when a search service is configured.
+ */
+export function getToolDefinitions(options: { semantic: boolean }): ToolDefinition[] {
+  return options.semantic ? [...toolDefinitions, ...semanticToolDefinitions] : toolDefinitions;
+}

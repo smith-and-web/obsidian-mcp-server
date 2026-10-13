@@ -5,8 +5,9 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { toolDefinitions, executeToolCall } from '../tools/index.js';
+import { getToolDefinitions, executeToolCall } from '../tools/index.js';
 import type { VaultManager } from '../vault/VaultManager.js';
+import type { SearchService } from '../index/SearchService.js';
 import type { Request, Response } from 'express';
 
 interface MCPRequest {
@@ -27,7 +28,11 @@ interface MCPServerHandlers {
 /**
  * Create and configure an MCP server instance
  */
-export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
+export function createMCPServer(
+  vaultManager: VaultManager,
+  search: SearchService | null = null
+): MCPServerHandlers {
+  const toolDefinitions = getToolDefinitions({ semantic: search !== null });
   // Track active SSE transports by sessionId so /message POSTs can be routed
   // back to the correct stream. Required by the standard MCP-over-SSE flow:
   // the SSE stream emits an `endpoint` event pointing at /message?sessionId=...,
@@ -65,7 +70,12 @@ export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
       const { name, arguments: args } = request.params;
 
       try {
-        const result = await executeToolCall(name, args as Record<string, unknown>, vaultManager);
+        const result = await executeToolCall(
+          name,
+          args as Record<string, unknown>,
+          vaultManager,
+          search
+        );
         return {
           content: [
             {
@@ -148,7 +158,7 @@ export function createMCPServer(vaultManager: VaultManager): MCPServerHandlers {
       const { name, arguments: args } = params!;
 
       try {
-        const result = await executeToolCall(name, args, vaultManager);
+        const result = await executeToolCall(name, args, vaultManager, search);
         return res.json({
           jsonrpc: '2.0',
           id,

@@ -33,6 +33,12 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 - **Broken Links**: Detect wiki-links that don't resolve
 - **Find & Replace**: Bulk text replacement with regex support
 
+### Semantic Search (optional)
+- **Search by meaning**: hybrid vector + full-text retrieval over heading-aware chunks, backed by Postgres + [pgvector](https://github.com/pgvector/pgvector) and local embeddings from [Ollama](https://ollama.com)
+- **Similar notes**: nearest notes to a given note, by whole-note embedding
+- **Incremental indexer**: a second process from the same image that polls the vault and re-embeds only what changed; works over NFS/SMB where inotify does not
+- **Nothing leaves your network**: embeddings are computed locally; the feature is off entirely unless `DATABASE_URL` is set
+
 ### Directory Operations
 - **Create/Delete/Rename**: Full directory management
 - **List Contents**: Browse vault structure
@@ -253,6 +259,16 @@ Or connect directly to the SSE endpoint at `http://localhost:3001/sse`.
 | `find-broken-links` | Find unresolved wiki-links |
 | `find-replace` | Bulk find and replace |
 
+### Semantic Search (only when `DATABASE_URL` is set)
+| Tool | Description |
+|------|-------------|
+| `semantic-search` | Hybrid vector + full-text search; filters by `directory`, `tags`, frontmatter `type` and `status`; `mode: hybrid|vector|text` |
+| `similar-notes` | Notes nearest to a note by centroid embedding |
+| `index-status` | Model, counts, last indexer run and lag |
+| `reindex-note` | Re-index one note immediately |
+
+See [Semantic search](#semantic-search) for setup.
+
 ### Section Operations
 | Tool | Description |
 |------|-------------|
@@ -298,8 +314,18 @@ obsidian-mcp-server/
 │   ├── server/
 │   │   ├── mcp.ts            # MCP protocol handlers
 │   │   └── middleware.ts     # Express middleware
+│   ├── index/                # Optional semantic search
+│   │   ├── config.ts         # DATABASE_URL / OLLAMA_URL / EMBED_MODEL
+│   │   ├── exclusions.ts     # What the indexer never reads
+│   │   ├── chunker.ts        # Heading-aware chunking
+│   │   ├── embedder.ts       # Ollama client (+ a fake for tests)
+│   │   ├── store.ts          # pgvector schema, upserts, hybrid search
+│   │   ├── scanner.ts        # Vault walk and change detection
+│   │   └── SearchService.ts  # What the MCP tools call
+│   ├── indexer.ts            # Indexer entry point (second container)
 │   └── types/
 │       └── index.ts          # TypeScript type definitions
+├── sql/001_schema.sql        # Index schema (dimension substituted at start)
 ├── tests/                    # Vitest unit tests
 ├── Dockerfile
 ├── docker-compose.yml
@@ -315,6 +341,106 @@ obsidian-mcp-server/
 | `VAULT_PATH` | `/vault` | Path to Obsidian vault |
 | `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
 | `API_KEY` | *(none)* | API key for authentication. When set, requires Bearer token or query param |
+| `DATABASE_URL` | *(none)* | Postgres + pgvector connection string. **Enables semantic search**; unset = feature off |
+| `OLLAMA_URL` | `http://localhost:11434` | Ollama server for embeddings |
+| `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model; dimension is discovered from it |
+| `INDEX_COLLECTION` | `default` | Name of this vault's collection in the shared database |
+| `INDEX_INTERVAL_SECONDS` | `60` | Indexer only: seconds between vault scans |
+| `INDEX_VERBOSE` | `false` | Indexer only: log every file indexed or removed |
+| `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
+
+## Semantic search
+
+Off by default. Setting `DATABASE_URL` turns it on in both the server (four extra tools) and the indexer (a second process that keeps the index current). Everything runs locally: Postgres with the pgvector extension, and Ollama for embeddings.
+
+### How it works
+
+- **The vault stays the source of truth.** The index is a derivative you can drop and rebuild (`--reindex`).
+- **Chunking is heading-aware.** Notes split on H1–H3; sections longer than ~800 tokens split further with overlap; each chunk carries its breadcrumb (`Title › H2 › H3`). Chunk 0 is the title plus the frontmatter `summary`, so a one-line summary is the strongest signal for "which note answers this".
+- **Retrieval is hybrid.** Cosine similarity over an HNSW index and Postgres full-text search run side by side and are fused with reciprocal rank fusion, so paraphrases and exact identifiers (hostnames, ticket numbers) both work.
+- **Change detection is a poll**, not a watcher, because inotify does not propagate over NFS or SMB. The indexer stats every file each interval, hashes only files whose mtime or size moved, and re-embeds only files whose content changed.
+- **Exclusions are enforced by path before any read:** `.obsidian/`, `.trash/`, `.git/`, Synology `#recycle/` `@eaDir/` `@tmp/`, AppleDouble `._*`, dotfiles, non-`.md` files, any directory containing a `.noindex` file, and any note with frontmatter `index: false`.
+- **Links resolve like Obsidian does.** `[[Areas/note]]` resolves by path; `[[note]]` resolves if exactly one note in the vault has that basename, and stays unresolved (recorded, `NULL` target) when two do. Deleting one of two duplicates re-resolves the other the next time it is indexed.
+- **The model is a schema fact.** The embedding model and dimension are recorded in the database on first run; a different model refuses to index until `--reindex`.
+
+### Frontmatter the index understands
+
+```yaml
+---
+title: ubuntubox — NFS mount gate     # else first H1, else file name
+type: area                            # filterable: semantic-search { type }
+status: active                        # filterable: semantic-search { status }
+tags: [infra, nas]                    # filterable: semantic-search { tags }
+summary: One line that answers "what is this note about".
+index: true                           # false = never indexed
+---
+```
+
+### Setup
+
+1. **Database**: any Postgres 16+ with pgvector. The schema is created on first start from `sql/001_schema.sql`; nothing to run by hand. HNSW index builds need shared memory: give the Postgres container `shm_size: 1g`.
+2. **Embeddings**: `ollama pull nomic-embed-text` (768-d, 8k context) or `bge-m3` (1024-d).
+3. **Server**: add `DATABASE_URL`, `OLLAMA_URL`, `EMBED_MODEL` (and optionally `INDEX_COLLECTION`) to the server's environment. The `/health` endpoint reports `semanticSearch: enabled`.
+4. **Indexer**: run the same image again with `command: ["node", "dist/indexer.js"]`, the same environment, and the vault mounted **read-only**. `node dist/indexer.js --once --verbose` does a single pass and exits non-zero if any file failed.
+
+```yaml
+services:
+  obsidian-mcp:
+    image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
+    environment:
+      VAULT_PATH: /vault
+      API_KEY: ${API_KEY}
+      DATABASE_URL: postgres://brain:${DB_PASSWORD}@brain-db:5432/brain
+      OLLAMA_URL: http://ollama:11434
+      EMBED_MODEL: nomic-embed-text
+      INDEX_COLLECTION: secondbrain
+    volumes:
+      - /path/to/vault:/vault:rw
+    ports: ["3001:3000"]
+
+  obsidian-indexer:
+    image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
+    command: ["node", "dist/indexer.js"]
+    environment:
+      VAULT_PATH: /vault
+      DATABASE_URL: postgres://brain:${DB_PASSWORD}@brain-db:5432/brain
+      OLLAMA_URL: http://ollama:11434
+      EMBED_MODEL: nomic-embed-text
+      INDEX_COLLECTION: secondbrain
+      INDEX_INTERVAL_SECONDS: "60"
+    volumes:
+      - /path/to/vault:/vault:ro
+
+  brain-db:
+    image: pgvector/pgvector:0.8.2-pg16
+    shm_size: 1g
+    environment:
+      POSTGRES_DB: brain
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - ./brain-db:/var/lib/postgresql/data
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ./ollama:/root/.ollama
+```
+
+### Indexer CLI
+
+| Command | Does |
+|---|---|
+| `node dist/indexer.js` | Run forever, one pass every `INDEX_INTERVAL_SECONDS`; stops cleanly on SIGTERM |
+| `node dist/indexer.js --once` | One pass; exit 1 if any file errored |
+| `node dist/indexer.js --reindex` | Drop this collection and rebuild (required after changing `EMBED_MODEL`) |
+| `--verbose` / `INDEX_VERBOSE=true` | Log every file indexed or removed |
+
+### Security notes
+
+- The indexer needs only read access to the vault; mount it `:ro`.
+- Chunk text is stored in Postgres in clear. Treat the database as you treat the vault: same network boundary, same backup policy, and don't index material that should not share an access key with the rest of the vault (use `index: false` or a `.noindex` directory).
+- Embeddings never leave the Ollama host. No external API is involved anywhere in this feature.
 
 ## API Endpoints
 

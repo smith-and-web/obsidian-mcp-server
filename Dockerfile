@@ -13,8 +13,9 @@ COPY tsconfig.json ./
 # Install dependencies
 RUN npm install
 
-# Copy source code
+# Copy source code and SQL schema
 COPY src/ ./src/
+COPY sql/ ./sql/
 
 # Build TypeScript
 RUN npm run build
@@ -25,5 +26,5 @@ RUN mkdir -p /vault
 # Expose port
 EXPOSE 3000
 
-# Run the server
+# Run the server. For the indexer: command: ["node", "dist/indexer.js"]
 CMD ["node", "dist/index.js"]

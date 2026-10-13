@@ -43,12 +43,26 @@ src/
 ├── vault/
 │   ├── VaultManager.ts     # Core vault operations (the real logic lives here)
 │   └── frontmatter.ts      # YAML frontmatter utilities (gray-matter)
+├── index/                  # Optional semantic search (pgvector + Ollama); gated on DATABASE_URL
+│   ├── config.ts           # Env → IndexConfig (null when DATABASE_URL unset)
+│   ├── exclusions.ts       # Paths the indexer never reads (tested)
+│   ├── chunker.ts          # Heading-aware chunking (tested, pure)
+│   ├── embedder.ts         # Ollama client + FakeEmbedder for tests
+│   ├── store.ts            # All SQL: schema, upserts, hybrid search
+│   ├── scanner.ts          # Vault walk, change detection, one reconcile pass
+│   └── SearchService.ts    # What the tools call
+├── indexer.ts              # Indexer entrypoint (same image, second container)
 └── types/
     └── index.ts            # Shared types
 
+sql/001_schema.sql           # Index DDL; __DIM__ substituted at start
 tests/                       # Vitest specs (*.test.js) — mirror the src module under test
 examples/test-vault/         # Sample vault used by examples and manual testing
 ```
+
+Semantic tools register only when a `SearchService` is passed to `createMCPServer`. The pure
+modules (`chunker`, `exclusions`) have tests that need nothing; `tests/search.test.js` runs only
+with `TEST_DATABASE_URL` pointing at a Postgres with pgvector (`EMBED_PROVIDER=fake`, no model needed).
 
 > Note: source is `.ts`; the existing test files are `.test.js`. Match that convention when adding tests.
 
@@ -81,5 +95,6 @@ examples/test-vault/         # Sample vault used by examples and manual testing
 - `API_KEY` — bearer token for `/sse` and `/message` auth (optional; auth disabled if unset).
 - `COMPACT_RESPONSES` — `"true"` enables token-optimized compact response keys.
 - `NODE_ENV` — `development` | `production`.
+- `DATABASE_URL` — Postgres+pgvector; enables semantic search. `OLLAMA_URL`, `EMBED_MODEL`, `INDEX_COLLECTION`, `INDEX_INTERVAL_SECONDS` go with it.
 
 See `env.example` for the full list.
