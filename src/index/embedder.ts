@@ -47,10 +47,12 @@ export class OllamaEmbedder implements Embedder {
   }
 
   static async create(options: OllamaEmbedderOptions): Promise<OllamaEmbedder> {
+    // Explicit `undefined` values (config.ts passes batchSize: undefined when the
+    // env var is unset) must not override the defaults, or the batch loop never advances.
     const opts: Required<OllamaEmbedderOptions> = {
-      batchSize: 16,
-      retries: 3,
       ...options,
+      batchSize: options.batchSize ?? 16,
+      retries: options.retries ?? 3,
     };
     const probe = new OllamaEmbedder(opts, 0);
     const [vec] = await probe.request(['dimension probe']);
