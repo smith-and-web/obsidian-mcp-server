@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-13
+
+### Security
+- **Path containment**: every vault operation now resolves its path through a single `_resolve()` that rejects `..` traversal, absolute paths outside the vault and NUL bytes. Previously `path.join(VAULT_PATH, input)` was used unchecked, so a client holding the API key could read and write files outside the vault (for example `read-note ../../etc/hostname`). A leading `/` is still accepted and treated as vault-relative. The check is lexical; symlinks inside the vault that point outside it are not followed-checked.
+
 ## [1.4.0] - 2026-06-22
 
 ### Changed
