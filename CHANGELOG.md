@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+- README: state that the server is HTTP+SSE only and listens on all interfaces; remove the "direct npx" Claude Desktop/Cursor configs, which cannot work without a stdio mode; use loopback port publishing and `docker compose` in the examples; add Claude Code and Tailscale serve setup, auth/connection troubleshooting, the `npx` indexer command, `EMBED_PROVIDER`/`EMBED_DIM`, and a note on vault path confinement; fix the duplicated auth text and the TypeScript badge.
+
 ## [1.6.0] - 2026-10-14
 
 ### Added

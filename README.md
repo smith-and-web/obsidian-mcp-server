@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/github/license/smith-and-web/obsidian-mcp-server)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D20.19.0-brightgreen)](https://nodejs.org)
 [![MCP](https://img.shields.io/badge/MCP-compatible-blue)](https://modelcontextprotocol.io)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-6.x-blue)](https://www.typescriptlang.org/)
 [![Sponsor](https://img.shields.io/github/sponsors/smith-and-web?label=Sponsor&logo=github)](https://github.com/sponsors/smith-and-web)
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that enables AI assistants like Claude to interact with your Obsidian vault. Access your notes, create content, manage tags, and search your knowledge base through natural conversation.
@@ -50,9 +50,11 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that en
 
 ## Quick Start
 
+**How clients connect:** the server speaks MCP over **HTTP + SSE only** (there is no stdio mode). You start it (npx, Docker or from source), then point a client at `http://HOST:PORT/sse`. Clients that only support stdio servers connect through [`mcp-remote`](https://www.npmjs.com/package/mcp-remote), as shown below. It listens on **all network interfaces** on `PORT`, so set an `API_KEY` (see [Authentication](#authentication)) or keep it on loopback (for example `-p 127.0.0.1:3001:3000` in Docker) unless you want the whole network to have read/write access to your vault.
+
 ### npx (Quickest)
 
-Run directly without installation:
+Requires Node.js 20.19 or newer. This starts the server in the foreground (default port 3000):
 
 ```bash
 VAULT_PATH=/path/to/your/vault npx @smith-and-web/obsidian-mcp-server
@@ -72,16 +74,17 @@ VAULT_PATH=/path/to/vault PORT=3001 COMPACT_RESPONSES=true npx @smith-and-web/ob
 docker run -d \
   --name obsidian-mcp \
   -v /path/to/your/vault:/vault:rw \
-  -p 3001:3000 \
+  -p 127.0.0.1:3001:3000 \
   -e VAULT_PATH=/vault \
   ghcr.io/smith-and-web/obsidian-mcp-server:latest
 ```
+
+`latest` follows the newest release; pin a version tag (for example `:1.6.0`) for production. Drop `127.0.0.1:` only if you set `API_KEY` and want other machines to connect.
 
 **Or with Docker Compose:**
 
 1. **Create a `docker-compose.yml`:**
    ```yaml
-   version: '3.8'
    services:
      obsidian-mcp:
        image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
@@ -90,14 +93,14 @@ docker run -d \
        volumes:
          - /path/to/your/vault:/vault:rw
        ports:
-         - "3001:3000"
+         - "127.0.0.1:3001:3000"
        environment:
          - VAULT_PATH=/vault
    ```
 
 2. **Start the server**
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 3. **Verify it's running**
@@ -158,27 +161,12 @@ Add to your Claude Desktop config file:
 }
 ```
 
-**Option 3: Direct npx (runs server locally)**
-```json
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "npx",
-      "args": ["@smith-and-web/obsidian-mcp-server"],
-      "env": {
-        "VAULT_PATH": "/path/to/your/vault",
-        "PORT": "3001"
-      }
-    }
-  }
-}
-```
+The server must already be running (see Quick Start). Claude Desktop launches `mcp-remote`, which bridges its stdio to the server's SSE endpoint; Claude Desktop cannot launch this server directly, because the server does not speak stdio.
 
 ### Cursor
 
 Add to your Cursor MCP settings (Settings → MCP):
 
-**Option 1: Connect to running server**
 ```json
 {
   "mcpServers": {
@@ -190,31 +178,23 @@ Add to your Cursor MCP settings (Settings → MCP):
 }
 ```
 
-**Option 2: Run server directly**
-```json
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "npx",
-      "args": ["@smith-and-web/obsidian-mcp-server"],
-      "env": {
-        "VAULT_PATH": "/path/to/your/vault",
-        "PORT": "3001"
-      }
-    }
-  }
-}
-```
-
 ### Other MCP Clients
 
-Any MCP-compatible client can connect using `mcp-remote`:
+**Claude Code** supports SSE servers directly:
+
+```bash
+claude mcp add --transport sse obsidian http://localhost:3001/sse
+# with an API key:
+claude mcp add --transport sse obsidian https://your-host/sse --header "Authorization: Bearer your-secret-key"
+```
+
+Any other MCP-compatible client can connect using `mcp-remote`:
 
 ```bash
 npx mcp-remote http://localhost:3001/sse
 ```
 
-Or connect directly to the SSE endpoint at `http://localhost:3001/sse`.
+Or connect directly to the SSE endpoint at `http://localhost:3001/sse` if the client supports SSE servers natively.
 
 ## Available Tools
 
@@ -349,6 +329,8 @@ obsidian-mcp-server/
 | `INDEX_INTERVAL_SECONDS` | `60` | Indexer only: seconds between vault scans |
 | `INDEX_VERBOSE` | `false` | Indexer only: log every file indexed or removed |
 | `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
+| `EMBED_PROVIDER` | `ollama` | `ollama`, or `fake` (deterministic hash embeddings for tests and smoke runs; not for real search) |
+| `EMBED_DIM` | *(auto)* | Embedding dimension for the `fake` provider (default 64); ignored with Ollama, where it is discovered from the model |
 
 ## Semantic search
 
@@ -397,7 +379,7 @@ services:
       INDEX_COLLECTION: secondbrain
     volumes:
       - /path/to/vault:/vault:rw
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:3001:3000"]
 
   obsidian-indexer:
     image: ghcr.io/smith-and-web/obsidian-mcp-server:latest
@@ -435,6 +417,7 @@ services:
 | `node dist/indexer.js` | Run forever, one pass every `INDEX_INTERVAL_SECONDS`; stops cleanly on SIGTERM |
 | `node dist/indexer.js --once` | One pass; exit 1 if any file errored |
 | `node dist/indexer.js --reindex` | Drop this collection and rebuild (required after changing `EMBED_MODEL`) |
+| `npx -p @smith-and-web/obsidian-mcp-server obsidian-mcp-indexer` | The same indexer from the npm package (also accepts `--once`, `--reindex`, `--verbose`) |
 | `--verbose` / `INDEX_VERBOSE=true` | Log every file indexed or removed |
 
 ### Security notes
@@ -474,14 +457,13 @@ docker run -d \
 API_KEY=your-secret-key VAULT_PATH=/path/to/vault npx @smith-and-web/obsidian-mcp-server
 ```
 
-### Authentication Methods
+### Authentication Method
 
-Clients authenticate with a Bearer token:
+Clients send the key in the **Authorization header**:
 
-Send the key in the **Authorization header**:
-   ```
-   Authorization: Bearer your-secret-key
-   ```
+```
+Authorization: Bearer your-secret-key
+```
 
 The `?api_key=` query parameter was **removed in 1.6.0** (it ends up in access logs and client history). Clients that used it must switch to the header, for example `mcp-remote` with `--header "Authorization: Bearer your-secret-key"`.
 
@@ -507,28 +489,19 @@ Behind `tailscale serve` on loopback, set `REQUIRE_TAILSCALE_LOGIN=you@example.c
 }
 ```
 
-**Direct npx with API key:**
-```json
-{
-  "mcpServers": {
-    "obsidian": {
-      "command": "npx",
-      "args": ["@smith-and-web/obsidian-mcp-server"],
-      "env": {
-        "VAULT_PATH": "/path/to/your/vault",
-        "API_KEY": "your-secret-key"
-      }
-    }
-  }
-}
+**Claude Code:**
+```bash
+claude mcp add --transport sse obsidian https://your-domain.com/sse --header "Authorization: Bearer your-secret-key"
 ```
 
 ### Security Considerations
 
 - **Generate strong keys**: Use a random string of at least 32 characters
 - **HTTPS required**: Always use HTTPS when exposing the server remotely to prevent key interception
-- **File Access**: The server has full read/write access to the mounted vault
+- **File Access**: The server has full read/write access to the mounted vault, but every path is confined to it (paths that escape the vault, such as `../../etc/passwd`, are rejected; fixed in 1.4.1)
+- **Bind address**: the server listens on all interfaces. In Docker, publish to loopback (`127.0.0.1:3001:3000`) unless remote access is intended
 - **CORS**: Currently allows all origins. Restrict in production if needed
+- **Key in logs**: only send the key in the `Authorization` header; the old `?api_key=` query parameter was removed because URLs end up in access logs
 - **Network security**: Consider additional layers like VPN or firewall rules for sensitive vaults
 
 ## Deployment with NGINX Proxy Manager
@@ -539,7 +512,7 @@ For remote access with SSL:
    - Domain: `obsidian.yourdomain.com`
    - Forward Hostname: `obsidian-mcp` (container name)
    - Forward Port: `3000`
-   - Enable Websockets
+   - Websockets are not required (SSE is plain HTTP); the Advanced block below is what matters
 
 2. SSL Tab: Request Let's Encrypt certificate
 
@@ -551,6 +524,19 @@ For remote access with SSL:
    proxy_http_version 1.1;
    chunked_transfer_encoding off;
    ```
+
+## Private access with Tailscale
+
+If your clients are on a [Tailscale](https://tailscale.com) tailnet you can skip the public reverse proxy entirely. Keep the container on loopback and let `tailscale serve` publish it with a tailnet-only HTTPS certificate:
+
+```bash
+docker run -d --name obsidian-mcp -v /path/to/vault:/vault:rw -p 127.0.0.1:3001:3000 \
+  -e API_KEY=your-secret-key -e REQUIRE_TAILSCALE_LOGIN=you@example.com \
+  ghcr.io/smith-and-web/obsidian-mcp-server:latest
+sudo tailscale serve --bg --https=443 http://127.0.0.1:3001
+```
+
+Clients then use `https://<machine>.<tailnet>.ts.net/sse` with the `Authorization: Bearer` header. Never enable Tailscale Funnel for this server. See [Tailscale login](#tailscale-login-optional-second-factor) for what `REQUIRE_TAILSCALE_LOGIN` does and does not protect against.
 
 ## Troubleshooting
 
@@ -575,10 +561,12 @@ ls -la /path/to/your/vault
 docker exec obsidian-mcp ls -la /vault
 ```
 
-### SSE Connection
-- Ensure websockets are enabled in your reverse proxy
-- Check SSL certificate validity
-- Verify firewall allows the port
+### Connection and auth errors
+- `401 Unauthorized`: missing or wrong `Authorization: Bearer <key>` header (the `?api_key=` query parameter is no longer accepted).
+- `403 Forbidden`: `REQUIRE_TAILSCALE_LOGIN` is set and the request did not arrive through `tailscale serve` as that user.
+- `Path escapes vault`: the requested path resolves outside `VAULT_PATH`; use a path relative to the vault.
+- SSE connection drops behind a reverse proxy: turn proxy buffering off (see the NGINX block above), check the certificate, and verify the firewall allows the port.
+- Claude Desktop starts but shows no tools: the server must already be running and the config must use `mcp-remote` (the server has no stdio mode).
 
 ## Development
 
@@ -619,7 +607,7 @@ Docker:
 
 ### API Testing with Bruno
 
-The repository includes a [Bruno](https://www.usebruno.com/) collection for testing all 31 tools.
+The repository includes a [Bruno](https://www.usebruno.com/) collection for testing the core tools (the four semantic-search tools need `DATABASE_URL` and a running index).
 
 1. Install Bruno (free, open-source API client)
 2. Open the collection from `./bruno/obsidian-mcp`
