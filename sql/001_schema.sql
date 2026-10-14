@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS documents (
   UNIQUE (collection, path)
 );
 
+-- Added in 1.7.0: why a note's frontmatter could not be parsed (NULL = fine). Safe on existing databases.
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS frontmatter_error text;
+
 CREATE TABLE IF NOT EXISTS chunks (
   id             bigserial PRIMARY KEY,
   document_id    bigint NOT NULL REFERENCES documents(id) ON DELETE CASCADE,

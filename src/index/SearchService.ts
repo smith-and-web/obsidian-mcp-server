@@ -37,6 +37,8 @@ export interface ReindexNoteResult {
   path: string;
   indexed: boolean;
   reason?: string;
+  /** Present when the note was indexed but its frontmatter is not valid YAML. */
+  warning?: string;
 }
 
 export class SearchService {
@@ -124,13 +126,21 @@ export class SearchService {
       await this.store.deleteDocument(rel);
       return { path: rel, indexed: false, reason: 'file not found; removed from index if present' };
     }
+    let warning: string | undefined;
     const indexed = await indexFile(
       { relPath: rel, absPath: abs, mtime: st.mtime, size: st.size },
       content,
-      { vaultPath: this.vaultPath, store: this.store, embedder: this.embedder }
+      {
+        vaultPath: this.vaultPath,
+        store: this.store,
+        embedder: this.embedder,
+        warn: msg => {
+          warning = msg.replace(/^WARN /, '');
+        },
+      }
     );
     return indexed
-      ? { path: rel, indexed: true }
+      ? { path: rel, indexed: true, ...(warning ? { warning } : {}) }
       : { path: rel, indexed: false, reason: 'frontmatter index: false' };
   }
 }

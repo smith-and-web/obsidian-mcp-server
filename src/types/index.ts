@@ -11,6 +11,8 @@ export interface ParsedFrontmatter {
   frontmatter: Frontmatter | null;
   body: string;
   raw: string | null;
+  /** Set when the note opens with a `---` block that is not valid YAML (first line of the parser error). */
+  error?: string;
 }
 
 // Note operations

@@ -585,7 +585,7 @@ export const semanticToolDefinitions: ToolDefinition[] = [
   {
     name: 'index-status',
     description:
-      'Report the state of the semantic index: embedding model, document and chunk counts, the last indexer run and how long ago it finished. Check this when search results look stale.',
+      'Report the state of the semantic index: embedding model, document and chunk counts, the last indexer run and how long ago it finished, and any notes whose frontmatter is not valid YAML (they are indexed without it). Check this when search results look stale.',
     inputSchema: { type: 'object', properties: {} },
   },
   {

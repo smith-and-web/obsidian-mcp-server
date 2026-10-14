@@ -11,7 +11,10 @@ import type { Frontmatter, ParsedFrontmatter } from '../types/index.js';
  */
 export function parseFrontmatter(content: string): ParsedFrontmatter {
   try {
-    const parsed = matter(content);
+    // Passing an options object bypasses gray-matter's content-keyed cache. The cache stores
+    // the entry before parsing, so a second parse of the same invalid content would silently
+    // succeed with empty data instead of throwing (and the cache would grow without bound).
+    const parsed = matter(content, {});
 
     // Check if there's actually frontmatter (gray-matter always returns data object)
     const hasFrontmatter = content.trim().startsWith('---');
@@ -25,9 +28,15 @@ export function parseFrontmatter(content: string): ParsedFrontmatter {
       body: parsed.content,
       raw: parsed.matter, // The raw YAML string between ---
     };
-  } catch {
-    // If gray-matter fails, return content as body with no frontmatter
-    return { frontmatter: null, body: content, raw: null };
+  } catch (err) {
+    // If gray-matter fails, return content as body with no frontmatter. A note that opens
+    // with a --- block but is not valid YAML (typically an unquoted "key: value: more")
+    // reports why, so callers can warn instead of silently losing the metadata.
+    const attempted = content.trimStart().startsWith('---');
+    const message = err instanceof Error ? err.message.split('\n')[0].trim() : String(err);
+    return attempted
+      ? { frontmatter: null, body: content, raw: null, error: message }
+      : { frontmatter: null, body: content, raw: null };
   }
 }
 

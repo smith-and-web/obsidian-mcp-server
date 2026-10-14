@@ -60,6 +60,15 @@ async function main(): Promise<void> {
     `indexer started: vault=${vaultPath} collection=${config.collection} model=${embedder.model} dim=${embedder.dim} interval=${config.intervalSeconds}s`
   );
 
+  // Restarting should not hide a standing problem: list notes whose frontmatter is invalid.
+  const standing = await store.listInvalidFrontmatter();
+  for (const n of standing.notes) log(`WARN invalid frontmatter in ${n.path}: ${n.error}`);
+  if (standing.count > standing.notes.length) {
+    log(
+      `WARN ${standing.count - standing.notes.length} more notes with invalid frontmatter (see index-status)`
+    );
+  }
+
   let stopping = false;
   const stop = () => {
     if (stopping) return;
@@ -78,12 +87,14 @@ async function main(): Promise<void> {
         store,
         embedder,
         log: verbose ? log : undefined,
+        warn: log,
       });
       await store.finishRun(runId, stats);
       const secs = ((Date.now() - started) / 1000).toFixed(1);
       if (stats.changed || stats.removed || stats.errors || once || verbose) {
+        const invalid = (await store.listInvalidFrontmatter(0)).count;
         log(
-          `pass done in ${secs}s: seen=${stats.seen} changed=${stats.changed} removed=${stats.removed} errors=${stats.errors}`
+          `pass done in ${secs}s: seen=${stats.seen} changed=${stats.changed} removed=${stats.removed} errors=${stats.errors} invalid_frontmatter=${invalid}`
         );
       }
       return stats.errors;

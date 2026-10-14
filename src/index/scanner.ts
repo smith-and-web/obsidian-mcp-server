@@ -40,6 +40,8 @@ export interface ScannerOptions {
   store: IndexStore;
   embedder: Embedder;
   log?: (msg: string) => void;
+  /** Always-on channel for problems worth seeing without --verbose (e.g. invalid frontmatter). */
+  warn?: (msg: string) => void;
 }
 
 /**
@@ -101,6 +103,12 @@ export async function indexFile(
     await opts.store.deleteDocument(file.relPath);
     return false;
   }
+  if (note.frontmatterError) {
+    opts.warn?.(
+      `WARN invalid frontmatter in ${file.relPath}: ${note.frontmatterError} ` +
+        `(indexed without it; quote values that contain ": ")`
+    );
+  }
   const embeddings = await opts.embedder.embed(note.chunks.map(c => c.content));
   const tags = Array.isArray(note.frontmatter?.tags)
     ? (note.frontmatter!.tags as unknown[])
@@ -118,6 +126,7 @@ export async function indexFile(
     chunks: note.chunks,
     embeddings,
     links: note.links,
+    frontmatterError: note.frontmatterError ?? null,
   });
   return true;
 }

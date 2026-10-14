@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-14
+
+### Added
+- **Invalid frontmatter is now reported.** A note whose frontmatter is not valid YAML (typically an unquoted `key: value: more`) is still indexed by its body, but the indexer logs `WARN invalid frontmatter in <path>: <error>` when it indexes it and again at every start, each pass line shows `invalid_frontmatter=<count>`, `index-status` returns `invalidFrontmatter: { count, notes }`, and `reindex-note` returns a `warning`. Previously the metadata vanished silently and `errors` stayed 0. The index gains a nullable `documents.frontmatter_error` column, added automatically (`ADD COLUMN IF NOT EXISTS`) on the next start.
+
+### Fixed
+- `parseFrontmatter` could silently succeed with empty data the second time it saw the same invalid content, because gray-matter caches by content before parsing. It now bypasses that cache (which also stops it growing without bound).
+- Test files that share the test database now run one at a time, so they cannot race while creating the schema.
+
 ### Documentation
 - README: state that the server is HTTP+SSE only and listens on all interfaces; remove the "direct npx" Claude Desktop/Cursor configs, which cannot work without a stdio mode; use loopback port publishing and `docker compose` in the examples; add Claude Code and Tailscale serve setup, auth/connection troubleshooting, the `npx` indexer command, `EMBED_PROVIDER`/`EMBED_DIM`, and a note on vault path confinement; fix the duplicated auth text and the TypeScript badge.
 

@@ -40,6 +40,13 @@ export interface UpsertDocumentInput {
   chunks: Chunk[];
   embeddings: number[][];
   links: string[];
+  /** Parser error when the frontmatter is not valid YAML; stored so status can list it. */
+  frontmatterError?: string | null;
+}
+
+export interface InvalidFrontmatterNote {
+  path: string;
+  error: string;
 }
 
 export interface SearchFilters {
@@ -86,6 +93,8 @@ export interface IndexStatus {
   chunks: number;
   lastRun: IndexRunRecord | null;
   lagSeconds: number | null;
+  /** Notes whose frontmatter is not valid YAML (indexed without it). `notes` is capped at 20. */
+  invalidFrontmatter: { count: number; notes: InvalidFrontmatterNote[] };
 }
 
 export interface IndexStoreOptions {
@@ -237,12 +246,12 @@ export class IndexStore {
     try {
       await client.query('BEGIN');
       const doc = await client.query<{ id: number }>(
-        `INSERT INTO documents (collection, path, title, frontmatter, tags, content_sha256, mtime, size, centroid, indexed_at)
-         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::vector, now())
+        `INSERT INTO documents (collection, path, title, frontmatter, tags, content_sha256, mtime, size, centroid, frontmatter_error, indexed_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9::vector, $10, now())
          ON CONFLICT (collection, path) DO UPDATE SET
            title = EXCLUDED.title, frontmatter = EXCLUDED.frontmatter, tags = EXCLUDED.tags,
            content_sha256 = EXCLUDED.content_sha256, mtime = EXCLUDED.mtime, size = EXCLUDED.size,
-           centroid = EXCLUDED.centroid, indexed_at = now()
+           centroid = EXCLUDED.centroid, frontmatter_error = EXCLUDED.frontmatter_error, indexed_at = now()
          RETURNING id`,
         [
           this.collection,
@@ -254,6 +263,7 @@ export class IndexStore {
           input.mtime,
           input.size,
           dim ? toSqlVector(centroid) : null,
+          input.frontmatterError ?? null,
         ]
       );
       const id = Number(doc.rows[0].id);
@@ -374,8 +384,28 @@ export class IndexStore {
   // Reads for the MCP tools
   // ------------------------------------------------------------------
 
+  /** Notes whose frontmatter is not valid YAML, with the parser error (capped). */
+  async listInvalidFrontmatter(
+    limit = 20
+  ): Promise<{ count: number; notes: InvalidFrontmatterNote[] }> {
+    const count = await this.pool.query<{ n: string }>(
+      'SELECT count(*)::text AS n FROM documents WHERE collection = $1 AND frontmatter_error IS NOT NULL',
+      [this.collection]
+    );
+    const rows = await this.pool.query<{ path: string; frontmatter_error: string }>(
+      `SELECT path, frontmatter_error FROM documents
+       WHERE collection = $1 AND frontmatter_error IS NOT NULL ORDER BY path LIMIT $2`,
+      [this.collection, limit]
+    );
+    return {
+      count: Number(count.rows[0].n),
+      notes: rows.rows.map(r => ({ path: r.path, error: r.frontmatter_error })),
+    };
+  }
+
   async status(): Promise<IndexStatus> {
     const meta = await this.getMeta();
+    const invalidFrontmatter = await this.listInvalidFrontmatter();
     const counts = await this.pool.query<{ documents: string; chunks: string }>(
       `SELECT (SELECT count(*) FROM documents WHERE collection = $1)::text AS documents,
               (SELECT count(*) FROM chunks c JOIN documents d ON d.id = c.document_id WHERE d.collection = $1)::text AS chunks`,
@@ -420,6 +450,7 @@ export class IndexStore {
       lagSeconds: lastRun?.finishedAt
         ? Math.round((Date.now() - lastRun.finishedAt.getTime()) / 1000)
         : null,
+      invalidFrontmatter,
     };
   }
 
