@@ -34,6 +34,8 @@ export interface ChunkerOptions {
 export interface ChunkedNote {
   title: string;
   frontmatter: Frontmatter | null;
+  /** Why the frontmatter could not be parsed, if it could not (the note is still indexed, without it). */
+  frontmatterError?: string;
   chunks: Chunk[];
   /** Wikilink targets found in the body, without aliases or anchors. */
   links: string[];
@@ -188,7 +190,7 @@ export function chunkNote(
   options: ChunkerOptions = {}
 ): ChunkedNote {
   const opts = { ...DEFAULTS, ...options };
-  const { frontmatter, body } = parseFrontmatter(content);
+  const { frontmatter, body, error: frontmatterError } = parseFrontmatter(content);
   const title = deriveTitle(frontmatter, body, relPath);
   const links = extractWikilinks(body);
   const chunks: Chunk[] = [];
@@ -219,5 +221,5 @@ export function chunkNote(
     }
   }
 
-  return { title, frontmatter, chunks, links };
+  return { title, frontmatter, ...(frontmatterError ? { frontmatterError } : {}), chunks, links };
 }

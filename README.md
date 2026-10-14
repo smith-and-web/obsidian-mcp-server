@@ -359,6 +359,8 @@ index: true                           # false = never indexed
 ---
 ```
 
+**Invalid frontmatter is reported, not hidden.** A note whose `---` block is not valid YAML (the usual cause is an unquoted value containing `: `, such as `summary: Finished it: all done`; quote it: `summary: "Finished it: all done"`) is still indexed by its body, but without its metadata. The indexer logs `WARN invalid frontmatter in <path>: <YAML error>` when it indexes such a note and again at every start, each pass line carries `invalid_frontmatter=<count>`, and `index-status` returns `invalidFrontmatter: { count, notes: [{ path, error }] }` (first 20). `reindex-note` returns a `warning`. Fix the note and the flag clears on the next pass.
+
 ### Setup
 
 1. **Database**: any Postgres 16+ with pgvector. The schema is created on first start from `sql/001_schema.sql`; nothing to run by hand. HNSW index builds need shared memory: give the Postgres container `shm_size: 1g`.
@@ -565,6 +567,7 @@ docker exec obsidian-mcp ls -la /vault
 - `401 Unauthorized`: missing or wrong `Authorization: Bearer <key>` header (the `?api_key=` query parameter is no longer accepted).
 - `403 Forbidden`: `REQUIRE_TAILSCALE_LOGIN` is set and the request did not arrive through `tailscale serve` as that user.
 - `Path escapes vault`: the requested path resolves outside `VAULT_PATH`; use a path relative to the vault.
+- Search results are missing a note's `summary`, tags or type filters: check `index-status` for `invalidFrontmatter` (or the indexer log for `WARN invalid frontmatter`); the note's YAML is invalid and was indexed without its metadata.
 - SSE connection drops behind a reverse proxy: turn proxy buffering off (see the NGINX block above), check the certificate, and verify the firewall allows the port.
 - Claude Desktop starts but shows no tools: the server must already be running and the config must use `mcp-remote` (the server has no stdio mode).
 
