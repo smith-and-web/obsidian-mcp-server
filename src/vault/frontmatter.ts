@@ -4,6 +4,7 @@
  */
 
 import matter from 'gray-matter';
+import YAML from 'yaml';
 import type { Frontmatter, ParsedFrontmatter } from '../types/index.js';
 
 /**
@@ -100,4 +101,101 @@ export function reconstructContent(frontmatter: Frontmatter | null, body: string
   }
   const yaml = serializeFrontmatter(frontmatter);
   return `---\n${yaml}\n---\n${body}`;
+}
+
+// ---------------------------------------------------------------------------
+// In-place frontmatter editing
+// ---------------------------------------------------------------------------
+//
+// Writers must not parse the frontmatter to an object and dump it again: a dump
+// normalises everything (a date-looking `title: 2026-10-14` becomes a timestamp,
+// `created` loses its timezone offset, flow lists become block lists, comments and
+// empty lists vanish). Instead the YAML is edited as a document, so every field that
+// is not touched keeps its exact text.
+
+/** Strings that a YAML 1.1 reader (Obsidian, gray-matter) would not read back as a string. */
+function needsQuotes(value: string): boolean {
+  return (
+    /^\d{4}-\d{1,2}-\d{1,2}$/.test(value) || // date-only: read back as a Date
+    /^(true|false|yes|no|on|off|y|n|null|~)$/i.test(value) ||
+    /^[-+]?(\d[\d_]*\.?\d*|\.\d+)([eE][-+]?\d+)?$/.test(value) || // numbers
+    /^0[xob][0-9a-f_]+$/i.test(value)
+  );
+}
+
+export function toYamlNode(doc: YAML.Document, value: unknown): unknown {
+  if (typeof value === 'string' && needsQuotes(value)) {
+    const scalar = new YAML.Scalar(value);
+    scalar.type = YAML.Scalar.QUOTE_DOUBLE;
+    return scalar;
+  }
+  if (Array.isArray(value)) {
+    const seq = doc.createNode(
+      value.map(v => (typeof v === 'string' && needsQuotes(v) ? toYamlNode(doc, v) : v))
+    ) as YAML.YAMLSeq;
+    if (value.every(v => v === null || typeof v !== 'object')) seq.flow = true; // vault style: tags: [a, b]
+    return seq;
+  }
+  return doc.createNode(value);
+}
+
+/** Set (or, for null/undefined, delete) one top-level field, keeping everything else as it was. */
+export function setFrontmatterField(doc: YAML.Document, key: string, value: unknown): void {
+  if (value === null || value === undefined) {
+    doc.delete(key);
+    return;
+  }
+  const existing = doc.get(key, true);
+  const node = toYamlNode(doc, value);
+  // Keep an existing list's style (flow or block) when a list is replaced by a list.
+  if (YAML.isSeq(existing) && YAML.isSeq(node)) node.flow = existing.flow;
+  doc.set(key, node);
+}
+
+export interface EditedFrontmatter {
+  content: string;
+  frontmatter: Frontmatter;
+}
+
+/**
+ * Edit a note's frontmatter in place. `edit` receives the YAML document; return the new file
+ * content and the resulting frontmatter object. Returns null when the note has no
+ * frontmatter and `createIfMissing` is false. Throws (without changing anything) when the
+ * existing frontmatter is not valid YAML, rather than clobbering it.
+ */
+export function editFrontmatter(
+  content: string,
+  edit: (doc: YAML.Document) => void,
+  options: { createIfMissing?: boolean } = {}
+): EditedFrontmatter | null {
+  const { createIfMissing = true } = options;
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const match = content.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?=\r?\n|$)/);
+
+  let doc: YAML.Document;
+  let before = '';
+  let after: string;
+  if (match) {
+    doc = YAML.parseDocument(match[1]);
+    if (doc.errors.length) {
+      throw new Error(
+        `Frontmatter is not valid YAML, so it was not changed: ${doc.errors[0].message.split('\n')[0]}`
+      );
+    }
+    if (!YAML.isMap(doc.contents)) doc.contents = doc.createNode({}) as YAML.YAMLMap;
+    before = content.startsWith('\uFEFF') ? '\uFEFF' : '';
+    after = content.slice(match[0].length);
+  } else {
+    if (!createIfMissing) return null;
+    doc = new YAML.Document({});
+    after = content === '' ? '' : `${eol}${content}`.replace(/^\r?\n/, eol);
+  }
+
+  edit(doc);
+
+  const yaml = doc.toString({ lineWidth: 0, flowCollectionPadding: false }).replace(/\r?\n$/, '');
+  const frontmatter = (doc.toJS() ?? {}) as Frontmatter;
+  const body = match ? after : after.replace(/^\r?\n/, '');
+  const out = `${before}---${eol}${yaml.replace(/\r?\n/g, eol)}${eol}---${match ? body : `${eol}${body}`}`;
+  return { content: out, frontmatter };
 }

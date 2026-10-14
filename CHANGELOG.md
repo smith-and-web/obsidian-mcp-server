@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-10-14
+
+### Fixed
+- **`update-frontmatter`, `add-tags` and `remove-tags` no longer corrupt frontmatter.** They parsed the note to an object and dumped it again, which turned a date-looking `title: 2026-10-14` into a UTC timestamp, shifted `created`/`updated` to UTC, restyled flow lists into block lists, folded long strings, and dropped comments and empty lists. They now edit the YAML in place (using `yaml`): every field that is not touched keeps its exact text, new strings that a YAML 1.1 reader would misread (date-only values, `yes`/`no`, numbers) are quoted, line endings are preserved, and frontmatter that is not valid YAML is refused with a clear error instead of being overwritten.
+- **Section tools failed on headings containing regex characters.** `read-section`, `append-to-section` and `replace-section` built a regular expression from the heading text, so `## Status (2026-10-14)` (or any heading with `( ) [ ] + * ? . | $`) was "not found". Headings are now matched literally.
+
+### Added
+- Dependency: `yaml` (round-trip YAML editing).
+
 ## [1.7.0] - 2026-10-14
 
 ### Added
