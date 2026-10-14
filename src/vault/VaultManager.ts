@@ -4,7 +4,19 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import { parseFrontmatter, serializeFrontmatter } from './frontmatter.js';
+import YAML from 'yaml';
+import {
+  parseFrontmatter,
+  serializeFrontmatter,
+  editFrontmatter,
+  setFrontmatterField,
+  toYamlNode,
+} from './frontmatter.js';
+
+/** Escape text for use inside a RegExp, so headings like "Status (2026-10-14)" match literally. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 import type {
   Frontmatter,
   VaultManagerOptions,
@@ -458,33 +470,25 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
-    const { frontmatter, body } = this.parseFrontmatter(content);
-
-    let newFrontmatter: Frontmatter;
-    if (frontmatter) {
-      newFrontmatter = { ...frontmatter, ...updates };
-    } else if (createIfMissing) {
-      newFrontmatter = { ...updates };
-    } else {
+    // Edited in place: fields that are not updated keep their exact text (dates, quoting,
+    // list style, comments). Null/undefined values delete the field.
+    const edited = editFrontmatter(
+      content,
+      doc => {
+        for (const [key, value] of Object.entries(updates)) setFrontmatterField(doc, key, value);
+      },
+      { createIfMissing }
+    );
+    if (!edited) {
       throw new Error(`No frontmatter found in ${notePath} and createIfMissing is false`);
     }
 
-    // Remove null/undefined values
-    for (const key of Object.keys(newFrontmatter)) {
-      if (newFrontmatter[key] === null || newFrontmatter[key] === undefined) {
-        delete newFrontmatter[key];
-      }
-    }
-
-    const serialized = this.serializeFrontmatter(newFrontmatter);
-    const newContent = `---\n${serialized}\n---\n${body}`;
-
-    await fs.writeFile(fullPath, newContent, 'utf-8');
+    await fs.writeFile(fullPath, edited.content, 'utf-8');
 
     return {
       path: notePath,
       updated: true,
-      frontmatter: newFrontmatter,
+      frontmatter: edited.frontmatter,
     };
   }
 
@@ -502,17 +506,19 @@ export class VaultManager {
     let content = await fs.readFile(fullPath, 'utf-8');
 
     if (location === 'frontmatter') {
-      const { frontmatter, body } = this.parseFrontmatter(content);
-      const newFrontmatter: Frontmatter = frontmatter || {};
-
-      const existingTags = Array.isArray(newFrontmatter.tags)
-        ? (newFrontmatter.tags as string[])
-        : [];
-      const tagsToAdd = tags.filter(t => !existingTags.includes(t));
-      newFrontmatter.tags = [...existingTags, ...tagsToAdd];
-
-      const serialized = this.serializeFrontmatter(newFrontmatter);
-      const newContent = `---\n${serialized}\n---\n${body}`;
+      let tagsToAdd: string[] = [];
+      const edited = editFrontmatter(content, doc => {
+        const existing = doc.get('tags', true);
+        if (YAML.isSeq(existing)) {
+          const have = existing.items.map(i => String(YAML.isScalar(i) ? i.value : i));
+          tagsToAdd = tags.filter(t => !have.includes(t));
+          for (const t of tagsToAdd) existing.add(toYamlNode(doc, t) as YAML.Node);
+        } else {
+          tagsToAdd = tags.filter((t, i) => tags.indexOf(t) === i);
+          setFrontmatterField(doc, 'tags', tagsToAdd);
+        }
+      });
+      const newContent = edited!.content;
 
       await fs.writeFile(fullPath, newContent, 'utf-8');
       return {
@@ -542,17 +548,29 @@ export class VaultManager {
     const removedFrom: string[] = [];
 
     if (location === 'frontmatter' || location === 'both') {
-      const { frontmatter, body } = this.parseFrontmatter(content);
-
-      if (frontmatter && Array.isArray(frontmatter.tags)) {
-        const originalLength = (frontmatter.tags as string[]).length;
-        frontmatter.tags = (frontmatter.tags as string[]).filter(t => !tags.includes(t));
-
-        if ((frontmatter.tags as string[]).length < originalLength) {
+      let removedAny = false;
+      try {
+        const edited = editFrontmatter(
+          content,
+          doc => {
+            const seq = doc.get('tags', true);
+            if (!YAML.isSeq(seq)) return;
+            for (let i = seq.items.length - 1; i >= 0; i--) {
+              const item = seq.items[i];
+              if (tags.includes(String(YAML.isScalar(item) ? item.value : item))) {
+                seq.items.splice(i, 1);
+                removedAny = true;
+              }
+            }
+          },
+          { createIfMissing: false }
+        );
+        if (edited && removedAny) {
           removedFrom.push('frontmatter');
-          const serialized = this.serializeFrontmatter(frontmatter);
-          content = `---\n${serialized}\n---\n${body}`;
+          content = edited.content;
         }
+      } catch {
+        // Frontmatter is not valid YAML: leave it alone (inline tags can still be removed).
       }
     }
 
@@ -1280,7 +1298,7 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
+    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
     const match = fileContent.match(headingRegex);
 
     if (!match) {
@@ -1315,7 +1333,7 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
+    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
     const match = fileContent.match(headingRegex);
 
     if (!match) {
@@ -1378,7 +1396,7 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
+    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
     const match = fileContent.match(headingRegex);
 
     if (!match) {

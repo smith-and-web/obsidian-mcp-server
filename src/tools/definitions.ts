@@ -225,7 +225,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'update-frontmatter',
     description:
-      "Update specific fields in a note's YAML frontmatter without touching the content. Merges updates with existing frontmatter. Set a field to null to remove it.",
+      "Update specific fields in a note's YAML frontmatter without touching the content. Edits in place: fields you do not change keep their exact text (dates, quoting, list style, comments). Set a field to null to remove it. Refuses to change frontmatter that is not valid YAML.",
     inputSchema: {
       type: 'object',
       properties: {

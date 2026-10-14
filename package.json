@@ -1,6 +1,6 @@
 {
   "name": "@smith-and-web/obsidian-mcp-server",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport, with optional pgvector-backed semantic search",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -63,7 +63,8 @@
     "express": "^5.2.1",
     "gray-matter": "^4.0.3",
     "pg": "^8.23.1",
-    "pgvector": "^0.3.0"
+    "pgvector": "^0.3.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

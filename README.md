@@ -223,7 +223,7 @@ Or connect directly to the SSE endpoint at `http://localhost:3001/sse` if the cl
 | Tool | Description |
 |------|-------------|
 | `get-frontmatter` | Get YAML frontmatter as JSON |
-| `update-frontmatter` | Update frontmatter fields |
+| `update-frontmatter` | Update frontmatter fields in place (untouched fields keep their exact text; invalid YAML is refused) |
 | `add-tags` | Add tags to frontmatter or inline |
 | `remove-tags` | Remove tags from note |
 | `list-tags` | List all tags with counts |
