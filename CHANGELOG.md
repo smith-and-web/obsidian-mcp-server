@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Ollama embedder: an unset `EMBED_BATCH_SIZE` reached the embedder as an explicit `undefined`, which overrode the default batch size and made every embed call return nothing (indexer error `chunks and embeddings length mismatch`, `semantic-search` error `expected array or sparse vector`). Defaults now apply to `undefined` options.
+
+## [1.5.0] - 2026-10-13
+
+### Added
+- **Semantic search (optional)**: hybrid vector + full-text retrieval over the vault, backed by Postgres + pgvector and local Ollama embeddings. Enabled only when `DATABASE_URL` is set; with it unset, the tool list and behaviour are identical to 1.4.x.
+- New tools: `semantic-search` (filters: `directory`, `tags`, frontmatter `type`/`status`; `mode: hybrid|vector|text`), `similar-notes`, `index-status`, `reindex-note`.
+- **Indexer** (`dist/indexer.js`, bin `obsidian-mcp-indexer`): polls the vault, chunks notes by heading (H1–H3, ~800-token windows with overlap, breadcrumb prefix, title+summary head chunk), embeds changed content, and keeps `documents`/`chunks`/`links` tables current. `--once`, `--reindex`, `--verbose`. Clean stop on SIGTERM.
+- `sql/001_schema.sql`, applied automatically at start with the model's dimension; the model and dimension are recorded in `meta` and a mismatch refuses to run.
+- `links` table resolves wikilinks the way Obsidian's "shortest path" setting does: exact vault path first, else a basename that is unique in the vault; ambiguous basenames stay unresolved (`target_document_id IS NULL`) and are re-evaluated whenever a note with that basename is indexed.
+- Exclusion rules shared by the indexer and `reindex-note`: `.obsidian/`, `.trash/`, `.git/`, `#recycle/`, `@eaDir/`, `@tmp/`, `._*`, dotfiles, non-`.md`, `.noindex` directories, `index: false` frontmatter.
+- Env: `DATABASE_URL`, `OLLAMA_URL`, `EMBED_MODEL`, `INDEX_COLLECTION`, `INDEX_INTERVAL_SECONDS`, `INDEX_VERBOSE`, `EMBED_BATCH_SIZE`; `EMBED_PROVIDER=fake` for tests.
+- `/health` reports `semanticSearch: enabled|disabled`.
+- Dependencies: `pg`, `pgvector`.
+
+### Changed
+- `createMCPServer(vaultManager, search?)` and `executeToolCall(name, args, vaultManager, search?)` take an optional `SearchService`; `getToolDefinitions({ semantic })` returns the tool list for an instance. `toolDefinitions` is unchanged and still exported.
+- Dockerfile copies `sql/`; the same image runs the server (default) or the indexer (`command: ["node", "dist/indexer.js"]`).
+
+## [1.4.1] - 2026-10-13
+
+### Security
+- **Path containment**: every vault operation now resolves its path through a single `_resolve()` that rejects `..` traversal, absolute paths outside the vault and NUL bytes. Previously `path.join(VAULT_PATH, input)` was used unchecked, so a client holding the API key could read and write files outside the vault (for example `read-note ../../etc/hostname`). A leading `/` is still accepted and treated as vault-relative. The check is lexical; symlinks inside the vault that point outside it are not followed-checked.
+
 ## [1.4.0] - 2026-06-22
 
 ### Changed

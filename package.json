@@ -1,7 +1,7 @@
 {
   "name": "@smith-and-web/obsidian-mcp-server",
-  "version": "1.4.0",
-  "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport",
+  "version": "1.5.0",
+  "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport, with optional pgvector-backed semantic search",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -16,7 +16,9 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "index": "node dist/indexer.js",
+    "index:once": "node dist/indexer.js --once --verbose"
   },
   "keywords": [
     "obsidian",
@@ -27,7 +29,11 @@
     "markdown",
     "notes",
     "claude",
-    "ai"
+    "ai",
+    "pgvector",
+    "semantic-search",
+    "embeddings",
+    "ollama"
   ],
   "author": "Josh Smith",
   "license": "MIT",
@@ -44,20 +50,25 @@
   },
   "files": [
     "dist",
+    "sql",
     "README.md",
     "LICENSE"
   ],
   "bin": {
-    "obsidian-mcp-server": "dist/index.js"
+    "obsidian-mcp-server": "dist/index.js",
+    "obsidian-mcp-indexer": "dist/indexer.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "express": "^5.2.1",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "pg": "^8.23.1",
+    "pgvector": "^0.3.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^25.0.4",
+    "@types/pg": "^8.23.1",
     "@typescript-eslint/eslint-plugin": "^8.52.0",
     "@typescript-eslint/parser": "^8.52.0",
     "eslint": "^9.39.2",

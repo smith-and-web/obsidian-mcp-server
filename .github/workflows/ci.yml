@@ -37,6 +37,15 @@ jobs:
     strategy:
       matrix:
         node-version: [20, 22]
+    services:
+      pgvector:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_USER: test, POSTGRES_PASSWORD: test, POSTGRES_DB: test }
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://test:test@localhost:5432/test
     steps:
       - uses: actions/checkout@v7
 

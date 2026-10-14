@@ -62,6 +62,24 @@ export class VaultManager {
   }
 
   /**
+   * Resolve a vault-relative path to an absolute path, refusing anything that
+   * escapes the vault root (`..` traversal, absolute paths, NUL bytes).
+   * Leading slashes are treated as vault-relative for client compatibility.
+   * Note: this is a lexical check; symlinks inside the vault are not followed-checked.
+   */
+  private _resolve(relPath: string): string {
+    if (typeof relPath !== 'string' || relPath.includes('\0')) {
+      throw new Error('Invalid path');
+    }
+    const root = path.resolve(this.vaultPath);
+    const full = path.resolve(root, relPath.replace(/^[/\\]+/, ''));
+    if (full !== root && !full.startsWith(root + path.sep)) {
+      throw new Error(`Path escapes vault: ${relPath}`);
+    }
+    return full;
+  }
+
+  /**
    * Minify response object keys for token optimization (40-60% smaller)
    * Maps verbose keys to short keys when compact mode is enabled
    */
@@ -142,7 +160,7 @@ export class VaultManager {
 
   async readNote(notePath: string, options: ReadNoteOptions = {}): Promise<ReadNoteResult> {
     const { frontmatterOnly = false } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
     if (frontmatterOnly) {
@@ -185,7 +203,7 @@ export class VaultManager {
   }
 
   async createNote(notePath: string, content: string): Promise<{ path: string; created: boolean }> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const dir = path.dirname(fullPath);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(fullPath, content, 'utf-8');
@@ -193,14 +211,14 @@ export class VaultManager {
   }
 
   async editNote(notePath: string, content: string): Promise<{ path: string; updated: boolean }> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     await fs.writeFile(fullPath, content, 'utf-8');
     return { path: notePath, updated: true };
   }
 
   async deleteNote(notePath: string, options: DeleteNoteOptions = {}): Promise<DeleteNoteResult> {
     const { confirm } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const filename = path.basename(notePath);
 
     // Safety: require confirmation matching the filename
@@ -217,8 +235,8 @@ export class VaultManager {
   }
 
   async moveNote(fromPath: string, toPath: string): Promise<MoveNoteResult> {
-    const fullFromPath = path.join(this.vaultPath, fromPath);
-    const fullToPath = path.join(this.vaultPath, toPath);
+    const fullFromPath = this._resolve(fromPath);
+    const fullToPath = this._resolve(toPath);
     const dir = path.dirname(fullToPath);
     await fs.mkdir(dir, { recursive: true });
     await fs.rename(fullFromPath, fullToPath);
@@ -226,8 +244,8 @@ export class VaultManager {
   }
 
   async duplicateNote(sourcePath: string, destPath: string): Promise<DuplicateNoteResult> {
-    const fullSourcePath = path.join(this.vaultPath, sourcePath);
-    const fullDestPath = path.join(this.vaultPath, destPath);
+    const fullSourcePath = this._resolve(sourcePath);
+    const fullDestPath = this._resolve(destPath);
 
     // Check source exists
     await fs.stat(fullSourcePath);
@@ -259,7 +277,7 @@ export class VaultManager {
     options: WriteNoteOptions = {}
   ): Promise<WriteNoteResult> {
     const { mode = 'overwrite' } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
 
     switch (mode) {
       case 'append': {
@@ -293,7 +311,7 @@ export class VaultManager {
 
     for (const notePath of pathArray) {
       try {
-        const fullPath = path.join(this.vaultPath, notePath);
+        const fullPath = this._resolve(notePath);
         const stats = await fs.stat(fullPath);
 
         // Quick frontmatter check - read first 1KB to check for ---
@@ -334,7 +352,7 @@ export class VaultManager {
   // ============================================
 
   async createDirectory(dirPath: string): Promise<DirectoryResult> {
-    const fullPath = path.join(this.vaultPath, dirPath);
+    const fullPath = this._resolve(dirPath);
     await fs.mkdir(fullPath, { recursive: true });
     return { path: dirPath, created: true };
   }
@@ -344,7 +362,7 @@ export class VaultManager {
     options: DeleteDirectoryOptions = {}
   ): Promise<DirectoryResult & { recursive: boolean }> {
     const { recursive = false } = options;
-    const fullPath = path.join(this.vaultPath, dirPath);
+    const fullPath = this._resolve(dirPath);
 
     const stats = await fs.stat(fullPath);
     if (!stats.isDirectory()) {
@@ -371,8 +389,8 @@ export class VaultManager {
     fromPath: string,
     toPath: string
   ): Promise<{ from: string; to: string; renamed: boolean }> {
-    const fullFromPath = path.join(this.vaultPath, fromPath);
-    const fullToPath = path.join(this.vaultPath, toPath);
+    const fullFromPath = this._resolve(fromPath);
+    const fullToPath = this._resolve(toPath);
 
     const stats = await fs.stat(fullFromPath);
     if (!stats.isDirectory()) {
@@ -394,7 +412,7 @@ export class VaultManager {
   }
 
   async listVault(directory: string = ''): Promise<ListVaultResult> {
-    const fullPath = path.join(this.vaultPath, directory);
+    const fullPath = this._resolve(directory);
     const entries = await fs.readdir(fullPath, { withFileTypes: true });
 
     const files: string[] = [];
@@ -419,7 +437,7 @@ export class VaultManager {
   // ============================================
 
   async getFrontmatter(notePath: string): Promise<GetFrontmatterResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
     const { frontmatter, raw } = this.parseFrontmatter(content);
@@ -437,7 +455,7 @@ export class VaultManager {
     options: UpdateFrontmatterOptions = {}
   ): Promise<UpdateFrontmatterResult> {
     const { createIfMissing = true } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
     const { frontmatter, body } = this.parseFrontmatter(content);
@@ -480,7 +498,7 @@ export class VaultManager {
     options: AddTagsOptions = {}
   ): Promise<TagResult> {
     const { location = 'frontmatter' } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     let content = await fs.readFile(fullPath, 'utf-8');
 
     if (location === 'frontmatter') {
@@ -518,7 +536,7 @@ export class VaultManager {
     options: RemoveTagsOptions = {}
   ): Promise<TagResult & { removedFrom: string[] }> {
     const { location = 'both' } = options;
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     let content = await fs.readFile(fullPath, 'utf-8');
 
     const removedFrom: string[] = [];
@@ -555,7 +573,7 @@ export class VaultManager {
 
   async listTags(options: ListTagsOptions = {}): Promise<ListTagsResult> {
     const { directory = '', includeFiles = false } = options;
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const tagCounts: Record<string, number> = {};
     const tagFiles: Record<string, string[]> = {};
@@ -639,7 +657,7 @@ export class VaultManager {
     options: FindNotesByTagOptions = {}
   ): Promise<FindNotesByTagResult> {
     const { directory = '', matchExact = false } = options;
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const matchingFiles: Array<{
       path: string;
@@ -742,7 +760,7 @@ export class VaultManager {
     options: { directory?: string } = {}
   ): Promise<SearchMissingTagResult> {
     const { directory = '' } = options;
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const missingFiles: string[] = [];
     await this._findNotesMissingTagInDirectory(searchPath, directory, tag, missingFiles);
@@ -809,7 +827,7 @@ export class VaultManager {
   }
 
   async auditTags(directory: string, requiredTags: string[]): Promise<AuditTagsResult> {
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const auditResults: Array<{
       path: string;
@@ -899,7 +917,7 @@ export class VaultManager {
     } = options;
 
     const results: SearchFileResult[] = [];
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     await this._searchDirectoryEnhanced(searchPath, query, results, directory, {
       searchContent,
@@ -1022,7 +1040,7 @@ export class VaultManager {
     options: { directory?: string } = {}
   ): Promise<BacklinkResult> {
     const { directory = '' } = options;
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const noteNameWithExt = path.basename(notePath);
     const noteName = noteNameWithExt.replace(/\.md$/, '');
@@ -1122,7 +1140,7 @@ export class VaultManager {
 
   async findBrokenLinks(options: { directory?: string } = {}): Promise<BrokenLinksResult> {
     const { directory = '' } = options;
-    const searchPath = directory ? path.join(this.vaultPath, directory) : this.vaultPath;
+    const searchPath = directory ? this._resolve(directory) : this.vaultPath;
 
     const existingNotes = new Set<string>();
     await this._collectNotePaths(this.vaultPath, '', existingNotes);
@@ -1249,7 +1267,7 @@ export class VaultManager {
   // ============================================
 
   async appendToFile(notePath: string, content: string): Promise<AppendResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     await fs.appendFile(fullPath, '\n' + content, 'utf-8');
     return { path: notePath, appended: true };
   }
@@ -1259,7 +1277,7 @@ export class VaultManager {
     heading: string,
     content: string
   ): Promise<SectionResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
@@ -1294,7 +1312,7 @@ export class VaultManager {
     heading: string,
     newContent: string
   ): Promise<SectionResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
@@ -1334,7 +1352,7 @@ export class VaultManager {
     content: string,
     position: 'before' | 'after' = 'after'
   ): Promise<InsertAtMarkerResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const markerIndex = fileContent.indexOf(marker);
@@ -1357,7 +1375,7 @@ export class VaultManager {
   }
 
   async readSection(notePath: string, heading: string): Promise<ReadSectionResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = new RegExp(`^${heading}\\s*$`, 'm');
@@ -1386,7 +1404,7 @@ export class VaultManager {
   }
 
   async listHeadings(notePath: string, level: number | null = null): Promise<ListHeadingsResult> {
-    const fullPath = path.join(this.vaultPath, notePath);
+    const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
     const headingRegex = /^(#{1,6})\s+(.+)$/gm;
@@ -1429,7 +1447,7 @@ export class VaultManager {
       dryRun = false,
     } = options;
 
-    const fullPath = path.join(this.vaultPath, targetPath);
+    const fullPath = this._resolve(targetPath);
     const stats = await fs.stat(fullPath);
     const changes: FindReplaceFileResult[] = [];
 

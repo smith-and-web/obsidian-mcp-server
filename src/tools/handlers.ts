@@ -4,6 +4,7 @@
  */
 
 import type { VaultManager } from '../vault/VaultManager.js';
+import type { SearchService } from '../index/SearchService.js';
 
 export interface ToolArguments {
   path?: string;
@@ -15,7 +16,7 @@ export interface ToolArguments {
   to?: string;
   source?: string;
   destination?: string;
-  mode?: 'overwrite' | 'append' | 'prepend';
+  mode?: 'overwrite' | 'append' | 'prepend' | 'hybrid' | 'vector' | 'text';
   recursive?: boolean;
   directory?: string;
   updates?: Record<string, unknown>;
@@ -42,6 +43,9 @@ export interface ToolArguments {
   useRegex?: boolean;
   wholeWord?: boolean;
   dryRun?: boolean;
+  k?: number;
+  type?: string;
+  status?: string;
 }
 
 /**
@@ -50,7 +54,8 @@ export interface ToolArguments {
 export async function executeToolCall(
   name: string,
   args: ToolArguments,
-  vaultManager: VaultManager
+  vaultManager: VaultManager,
+  search?: SearchService | null
 ): Promise<unknown> {
   switch (name) {
     // Note Operations
@@ -71,7 +76,9 @@ export async function executeToolCall(
     case 'duplicate-note':
       return vaultManager.duplicateNote(args.source!, args.destination!);
     case 'write-note':
-      return vaultManager.writeNote(args.path!, args.content!, { mode: args.mode });
+      return vaultManager.writeNote(args.path!, args.content!, {
+        mode: args.mode as 'overwrite' | 'append' | 'prepend' | undefined,
+      });
     case 'get-notes-info':
       return vaultManager.getNotesInfo(args.paths!);
 
@@ -156,7 +163,33 @@ export async function executeToolCall(
         dryRun: args.dryRun,
       });
 
+    // Semantic Search (optional)
+    case 'semantic-search':
+      return requireSearch(search, name).semanticSearch(args.query!, {
+        k: args.k,
+        mode: args.mode as 'hybrid' | 'vector' | 'text' | undefined,
+        directory: args.directory,
+        tags: args.tags,
+        type: args.type,
+        status: args.status,
+      });
+    case 'similar-notes':
+      return requireSearch(search, name).similarNotes(args.path!, args.k);
+    case 'index-status':
+      return requireSearch(search, name).indexStatus();
+    case 'reindex-note':
+      return requireSearch(search, name).reindexNote(args.path!);
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
+}
+
+function requireSearch(search: SearchService | null | undefined, tool: string): SearchService {
+  if (!search) {
+    throw new Error(
+      `${tool} is unavailable: semantic search is not configured (DATABASE_URL unset)`
+    );
+  }
+  return search;
 }
