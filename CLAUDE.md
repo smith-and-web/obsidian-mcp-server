@@ -93,6 +93,7 @@ with `TEST_DATABASE_URL` pointing at a Postgres with pgvector (`EMBED_PROVIDER=f
 - `VAULT_PATH` — absolute path to the Obsidian vault (required).
 - `PORT` — HTTP port (default `3000`).
 - `API_KEY` — bearer token for `/sse` and `/message` auth (optional; auth disabled if unset).
+- `REQUIRE_TAILSCALE_LOGIN` — optional; when set, requests must carry a matching `Tailscale-User-Login` header (added by `tailscale serve`). Enforced even if `API_KEY` is unset.
 - `COMPACT_RESPONSES` — `"true"` enables token-optimized compact response keys.
 - `NODE_ENV` — `development` | `production`.
 - `DATABASE_URL` — Postgres+pgvector; enables semantic search. `OLLAMA_URL`, `EMBED_MODEL`, `INDEX_COLLECTION`, `INDEX_INTERVAL_SECONDS` go with it.
