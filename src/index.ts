@@ -27,7 +27,11 @@ app.use(corsMiddleware());
 app.use(express.json());
 
 // Auth middleware (only applied to protected routes)
-const auth = authMiddleware({ apiKey: API_KEY });
+const REQUIRE_TAILSCALE_LOGIN = process.env.REQUIRE_TAILSCALE_LOGIN || undefined;
+const auth = authMiddleware({
+  apiKey: API_KEY,
+  requireTailscaleLogin: REQUIRE_TAILSCALE_LOGIN,
+});
 
 // Initialize VaultManager
 const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
@@ -80,6 +84,7 @@ app.listen(PORT, () => {
   console.log(`Vault path: ${VAULT_PATH}`);
   console.log(`Compact responses: ${COMPACT_RESPONSES}`);
   console.log(`Authentication: ${API_KEY ? 'enabled' : 'disabled'}`);
+  if (REQUIRE_TAILSCALE_LOGIN) console.log(`Tailscale login required: ${REQUIRE_TAILSCALE_LOGIN}`);
   console.log(`Semantic search: ${search ? `enabled (${search.embedder.model})` : 'disabled'}`);
   console.log(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
 });

@@ -340,7 +340,8 @@ obsidian-mcp-server/
 | `PORT` | `3000` | Server port |
 | `VAULT_PATH` | `/vault` | Path to Obsidian vault |
 | `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
-| `API_KEY` | *(none)* | API key for authentication. When set, requires Bearer token or query param |
+| `API_KEY` | *(none)* | API key for authentication. When set, requires a Bearer token (compared in constant time) |
+| `REQUIRE_TAILSCALE_LOGIN` | *(none)* | Optional. Require the `Tailscale-User-Login` header (set by `tailscale serve`) to equal this login. Only trustworthy when the server is reachable solely through `tailscale serve` on loopback |
 | `DATABASE_URL` | *(none)* | Postgres + pgvector connection string. **Enables semantic search**; unset = feature off |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama server for embeddings |
 | `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model; dimension is discovered from it |
@@ -475,17 +476,18 @@ API_KEY=your-secret-key VAULT_PATH=/path/to/vault npx @smith-and-web/obsidian-mc
 
 ### Authentication Methods
 
-Clients can authenticate using either method:
+Clients authenticate with a Bearer token:
 
-1. **Authorization Header** (recommended):
+Send the key in the **Authorization header**:
    ```
    Authorization: Bearer your-secret-key
    ```
 
-2. **Query Parameter**:
-   ```
-   /sse?api_key=your-secret-key
-   ```
+The `?api_key=` query parameter was **removed in 1.6.0** (it ends up in access logs and client history). Clients that used it must switch to the header, for example `mcp-remote` with `--header "Authorization: Bearer your-secret-key"`.
+
+### Tailscale login (optional second factor)
+
+Behind `tailscale serve` on loopback, set `REQUIRE_TAILSCALE_LOGIN=you@example.com`. Requests then also need the `Tailscale-User-Login` header that serve adds for tailnet users; anything else gets `403`. Do not rely on this if the port is reachable any other way, because the header can be forged by a direct client.
 
 ### Client Configuration with API Key
 
@@ -497,7 +499,8 @@ Clients can authenticate using either method:
       "command": "npx",
       "args": [
         "-y", "mcp-remote",
-        "https://your-domain.com/sse?api_key=your-secret-key"
+        "https://your-domain.com/sse",
+        "--header", "Authorization: Bearer your-secret-key"
       ]
     }
   }

@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [1.6.0] - 2026-10-14
+
+### Added
+- `REQUIRE_TAILSCALE_LOGIN`: optional second factor. When set, requests must carry a matching `Tailscale-User-Login` header (added by `tailscale serve` for tailnet users), otherwise `403`. Enforced even when `API_KEY` is unset.
+
+### Changed
+- **Breaking:** the `?api_key=` query-parameter authentication is removed. It put the secret in access logs and client history. Use `Authorization: Bearer <key>`.
+- API key comparison is now constant-time.
+
+### Fixed (also shipped as the unpublished 1.5.1 tag)
 - Ollama embedder: an unset `EMBED_BATCH_SIZE` reached the embedder as an explicit `undefined`, which overrode the default batch size and made every embed call return nothing (indexer error `chunks and embeddings length mismatch`, `semantic-search` error `expected array or sparse vector`). Defaults now apply to `undefined` options.
 
 ## [1.5.0] - 2026-10-13

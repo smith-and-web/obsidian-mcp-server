@@ -110,7 +110,7 @@ describe('authMiddleware', () => {
       expect(res.status).not.toHaveBeenCalled();
     });
 
-    it('should authenticate with valid query parameter', () => {
+    it('should NOT accept the removed ?api_key= query parameter', () => {
       const req = {
         headers: {},
         query: { api_key: API_KEY },
@@ -118,8 +118,8 @@ describe('authMiddleware', () => {
 
       middleware(req, res, next);
 
-      expect(next).toHaveBeenCalled();
-      expect(res.status).not.toHaveBeenCalled();
+      expect(next).not.toHaveBeenCalled();
+      expect(res.status).toHaveBeenCalledWith(401);
     });
 
     it('should reject request without credentials', () => {
@@ -134,8 +134,7 @@ describe('authMiddleware', () => {
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith({
         error: 'Unauthorized',
-        message:
-          'Valid API key required. Provide via Authorization header (Bearer token) or api_key query parameter.',
+        message: 'Valid API key required. Provide it via the Authorization header (Bearer token).',
       });
     });
 
@@ -198,5 +197,84 @@ describe('authMiddleware', () => {
 
       expect(next).toHaveBeenCalled();
     });
+  });
+});
+
+describe('authMiddleware with requireTailscaleLogin', () => {
+  const API_KEY = 'test-secret-key-12345';
+  const LOGIN = 'Josh@example.com';
+  let res;
+  let next;
+
+  beforeEach(() => {
+    res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    next = vi.fn();
+  });
+
+  it('allows a matching login (case-insensitive) with a valid key', () => {
+    const middleware = authMiddleware({ apiKey: API_KEY, requireTailscaleLogin: LOGIN });
+    const req = {
+      headers: { authorization: `Bearer ${API_KEY}`, 'tailscale-user-login': 'josh@EXAMPLE.com' },
+      query: {},
+    };
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing login header with 403 even with a valid key', () => {
+    const middleware = authMiddleware({ apiKey: API_KEY, requireTailscaleLogin: LOGIN });
+    const req = { headers: { authorization: `Bearer ${API_KEY}` }, query: {} };
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('rejects a different login with 403', () => {
+    const middleware = authMiddleware({ apiKey: API_KEY, requireTailscaleLogin: LOGIN });
+    const req = {
+      headers: { authorization: `Bearer ${API_KEY}`, 'tailscale-user-login': 'other@example.com' },
+      query: {},
+    };
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+  });
+
+  it('still requires the key when the login matches', () => {
+    const middleware = authMiddleware({ apiKey: API_KEY, requireTailscaleLogin: LOGIN });
+    const req = { headers: { 'tailscale-user-login': LOGIN }, query: {} };
+
+    middleware(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('enforces the login even when no API key is configured', () => {
+    const middleware = authMiddleware({ apiKey: undefined, requireTailscaleLogin: LOGIN });
+
+    middleware({ headers: {}, query: {} }, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+
+    const next2 = vi.fn();
+    middleware({ headers: { 'tailscale-user-login': LOGIN }, query: {} }, res, next2);
+    expect(next2).toHaveBeenCalled();
+  });
+
+  it('does nothing extra when requireTailscaleLogin is not set', () => {
+    const middleware = authMiddleware({ apiKey: API_KEY });
+    const req = { headers: { authorization: `Bearer ${API_KEY}` }, query: {} };
+
+    middleware(req, res, next);
+
+    expect(next).toHaveBeenCalled();
   });
 });
