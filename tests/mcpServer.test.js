@@ -69,6 +69,14 @@ describe('createMCPServer handlePostRequest', () => {
     });
   });
 
+  it('includes instructions in the initialize result when configured', async () => {
+    const { handlePostRequest: withInstructions } = createMCPServer({}, null, 'Use me first.');
+    const res = makeRes();
+    await withInstructions(makeReq({ jsonrpc: '2.0', id: 6, method: 'initialize' }), res);
+
+    expect(res.body.result.instructions).toBe('Use me first.');
+  });
+
   it('leaves the tools/list response unchanged', async () => {
     const res = makeRes();
     await handlePostRequest(makeReq({ jsonrpc: '2.0', id: 5, method: 'tools/list' }), res);

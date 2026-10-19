@@ -9,6 +9,7 @@
 import express from 'express';
 import { VaultManager } from './vault/VaultManager.js';
 import { createMCPServer } from './server/mcp.js';
+import { readInstructions } from './server/instructions.js';
 import { corsMiddleware, authMiddleware } from './server/middleware.js';
 import { readIndexConfig } from './index/config.js';
 import { SearchService } from './index/SearchService.js';
@@ -18,6 +19,7 @@ const PORT = process.env.PORT || 3000;
 const VAULT_PATH = process.env.VAULT_PATH || '/vault';
 const COMPACT_RESPONSES = process.env.COMPACT_RESPONSES === 'true';
 const API_KEY = process.env.API_KEY;
+const INSTRUCTIONS = readInstructions();
 
 // Initialize Express app
 const app = express();
@@ -50,7 +52,8 @@ if (indexConfig) {
 // Initialize MCP handlers
 const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(
   vaultManager,
-  search
+  search,
+  INSTRUCTIONS
 );
 
 // Health check endpoint (public - no auth required)
@@ -85,6 +88,7 @@ app.listen(PORT, () => {
   console.log(`Compact responses: ${COMPACT_RESPONSES}`);
   console.log(`Authentication: ${API_KEY ? 'enabled' : 'disabled'}`);
   if (REQUIRE_TAILSCALE_LOGIN) console.log(`Tailscale login required: ${REQUIRE_TAILSCALE_LOGIN}`);
+  console.log(`Instructions: ${INSTRUCTIONS ? `${INSTRUCTIONS.length} chars` : 'none'}`);
   console.log(`Semantic search: ${search ? `enabled (${search.embedder.model})` : 'disabled'}`);
   console.log(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
 });

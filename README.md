@@ -322,6 +322,8 @@ obsidian-mcp-server/
 | `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
 | `API_KEY` | *(none)* | API key for authentication. When set, requires a Bearer token (compared in constant time) |
 | `REQUIRE_TAILSCALE_LOGIN` | *(none)* | Optional. Require the `Tailscale-User-Login` header (set by `tailscale serve`) to equal this login. Only trustworthy when the server is reachable solely through `tailscale serve` on loopback |
+| `MCP_INSTRUCTIONS_FILE` | *(none)* | Optional. Path to a text/Markdown file sent to clients as the MCP `instructions` in the `initialize` result: what this vault is and when to use it. Most clients add it to the model's context. A missing file is a startup error. Keep it short (some clients truncate around 2 KB) |
+| `MCP_INSTRUCTIONS` | *(none)* | Same, inline. Ignored when `MCP_INSTRUCTIONS_FILE` is set |
 | `DATABASE_URL` | *(none)* | Postgres + pgvector connection string. **Enables semantic search**; unset = feature off |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama server for embeddings |
 | `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model; dimension is discovered from it |
