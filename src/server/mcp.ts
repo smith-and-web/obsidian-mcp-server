@@ -30,7 +30,8 @@ interface MCPServerHandlers {
  */
 export function createMCPServer(
   vaultManager: VaultManager,
-  search: SearchService | null = null
+  search: SearchService | null = null,
+  instructions?: string
 ): MCPServerHandlers {
   const toolDefinitions = getToolDefinitions({ semantic: search !== null });
   // Track active SSE transports by sessionId so /message POSTs can be routed
@@ -59,6 +60,7 @@ export function createMCPServer(
         capabilities: {
           tools: {},
         },
+        ...(instructions ? { instructions } : {}),
       }
     );
 
@@ -140,6 +142,7 @@ export function createMCPServer(
             name: 'obsidian-mcp',
             version: '1.0.0',
           },
+          ...(instructions ? { instructions } : {}),
         },
       });
     }

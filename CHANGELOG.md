@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-19
+
+### Added
+- **Server instructions.** `MCP_INSTRUCTIONS_FILE` (or inline `MCP_INSTRUCTIONS`) sets the `instructions` field of the `initialize` result, on both the SSE transport and the direct `POST /sse` path. Clients such as Claude Code, Claude Desktop and Codex pass it to the model, so one file describes the vault and when to use it for every harness. Unset = no change. A configured file that cannot be read fails startup.
+
 ## [1.7.1] - 2026-10-14
 
 ### Fixed
