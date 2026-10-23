@@ -1,6 +1,6 @@
 {
   "name": "@smith-and-web/obsidian-mcp-server",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport, with optional pgvector-backed semantic search",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -18,7 +18,8 @@
     "format:check": "prettier --check src/",
     "prepublishOnly": "npm run build",
     "index": "node dist/indexer.js",
-    "index:once": "node dist/indexer.js --once --verbose"
+    "index:once": "node dist/indexer.js --once --verbose",
+    "eval": "node dist/eval.js"
   },
   "keywords": [
     "obsidian",

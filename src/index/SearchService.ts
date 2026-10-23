@@ -12,6 +12,7 @@ import { IndexStore, type IndexStatus, type SearchHit, type SimilarHit } from '.
 import { indexFile } from './scanner.js';
 import { isExcludedPath } from './exclusions.js';
 import type { IndexConfig } from './config.js';
+import type { RankingConfig } from './ranking.js';
 
 export interface SemanticSearchOptions {
   k?: number;
@@ -45,11 +46,18 @@ export class SearchService {
   readonly store: IndexStore;
   readonly embedder: Embedder;
   private vaultPath: string;
+  private ranking: RankingConfig;
 
-  private constructor(store: IndexStore, embedder: Embedder, vaultPath: string) {
+  private constructor(
+    store: IndexStore,
+    embedder: Embedder,
+    vaultPath: string,
+    ranking: RankingConfig
+  ) {
     this.store = store;
     this.embedder = embedder;
     this.vaultPath = vaultPath;
+    this.ranking = ranking;
   }
 
   /**
@@ -63,7 +71,7 @@ export class SearchService {
       collection: config.collection,
     });
     await store.ensureSchema(embedder.model, embedder.dim);
-    return new SearchService(store, embedder, vaultPath);
+    return new SearchService(store, embedder, vaultPath, config.ranking);
   }
 
   async close(): Promise<void> {
@@ -88,6 +96,7 @@ export class SearchService {
       tags: options.tags,
       type: options.type,
       status: options.status,
+      ranking: this.ranking,
     });
     return { query, mode, results };
   }
