@@ -48,9 +48,12 @@ src/
 │   ├── exclusions.ts       # Paths the indexer never reads (tested)
 │   ├── chunker.ts          # Heading-aware chunking (tested, pure)
 │   ├── embedder.ts         # Ollama client + FakeEmbedder for tests
+│   ├── ranking.ts          # Configurable fusion, weights and per-note cap
 │   ├── store.ts            # All SQL: schema, upserts, hybrid search
 │   ├── scanner.ts          # Vault walk, change detection, one reconcile pass
 │   └── SearchService.ts    # What the tools call
+├── eval/                   # Golden schema, metrics and ranking grid
+├── eval.ts                 # Read-only brain-eval CLI entrypoint
 ├── indexer.ts              # Indexer entrypoint (same image, second container)
 └── types/
     └── index.ts            # Shared types

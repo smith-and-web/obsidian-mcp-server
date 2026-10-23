@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-22
+
+### Added
+- Configurable search ranking: `SEARCH_FUSION`, `SEARCH_RRF_K`, `SEARCH_W_VECTOR`, `SEARCH_W_TEXT` and `SEARCH_PER_NOTE_CAP`.
+- The read-only `brain-eval` CLI for golden-query evaluation, a fixed ranking grid, regression gates and deterministic winner selection.
+- The `documents_status` index for frontmatter status filters.
+
+### Changed
+- Fusion runs in TypeScript. The defaults reproduce v1.8.0 scores exactly; exact ties are now ordered by chunk position, then id.
+- Searches set `hnsw.iterative_scan = strict_order`, and `hnsw.ef_search = 100` when filtered. Requires pgvector 0.8.0 or newer for iterative scans.
+- Under `SEARCH_FUSION=dbsf`, `score` ranges from 0 to `wVector + wText` instead of the RRF scale.
+
 ## [1.8.0] - 2026-10-19
 
 ### Added

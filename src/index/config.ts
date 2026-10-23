@@ -6,12 +6,14 @@
  */
 
 import type { EmbedderConfig } from './embedder.js';
+import { parseRankingEnv, type RankingConfig } from './ranking.js';
 
 export interface IndexConfig {
   databaseUrl: string;
   collection: string;
   embedder: EmbedderConfig;
   intervalSeconds: number;
+  ranking: RankingConfig;
 }
 
 export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConfig | null {
@@ -30,5 +32,6 @@ export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConf
       batchSize: env.EMBED_BATCH_SIZE ? Number(env.EMBED_BATCH_SIZE) : undefined,
     },
     intervalSeconds: Math.max(5, Number(env.INDEX_INTERVAL_SECONDS || 60)),
+    ranking: parseRankingEnv(env),
   };
 }

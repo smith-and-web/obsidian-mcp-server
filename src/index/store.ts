@@ -16,6 +16,7 @@ import pg from 'pg';
 import pgvector from 'pgvector/pg';
 import type { Chunk } from './chunker.js';
 import type { Frontmatter } from '../types/index.js';
+import { DEFAULT_RANKING, fuse, capPerNote, type RankingConfig, type LegHit } from './ranking.js';
 
 const { Pool } = pg;
 
@@ -100,6 +101,8 @@ export interface IndexStatus {
 export interface IndexStoreOptions {
   connectionString: string;
   collection: string;
+  readOnly?: boolean;
+  pgOptions?: string;
 }
 
 function toSqlVector(v: number[]): string {
@@ -124,7 +127,14 @@ export class IndexStore {
   readonly collection: string;
 
   constructor(options: IndexStoreOptions) {
-    this.pool = new Pool({ connectionString: options.connectionString, max: 4 });
+    const opts = [options.readOnly ? '-c default_transaction_read_only=on' : '', options.pgOptions]
+      .filter(Boolean)
+      .join(' ');
+    this.pool = new Pool({
+      connectionString: options.connectionString,
+      max: 4,
+      ...(opts ? { options: opts } : {}),
+    });
     this.collection = options.collection;
   }
 
@@ -477,8 +487,8 @@ export class IndexStore {
   }
 
   /**
-   * Hybrid search: vector cosine and full-text, fused with reciprocal rank
-   * fusion (k = 60). `mode` can restrict to one leg.
+   * Vector cosine and full-text legs with configurable fusion and a per-note
+   * cap. `mode` can restrict retrieval to one leg.
    */
   async search(
     queryEmbedding: number[] | null,
@@ -487,83 +497,104 @@ export class IndexStore {
       k?: number;
       mode?: 'hybrid' | 'vector' | 'text';
       candidates?: number;
+      ranking?: RankingConfig;
     } & SearchFilters = {}
   ): Promise<SearchHit[]> {
     const k = Math.max(1, Math.min(options.k ?? 8, 50));
     const candidates = Math.max(k, Math.min(options.candidates ?? 40, 200));
     const mode = options.mode ?? 'hybrid';
+    const ranking = options.ranking ?? DEFAULT_RANKING;
     const useVector = mode !== 'text' && queryEmbedding !== null;
     const useText = mode !== 'vector' && queryText.trim().length > 0;
     if (!useVector && !useText) return [];
 
     const params: unknown[] = [this.collection];
     const filter = this.filterSql(options, params);
-
-    let vectorCte =
-      'SELECT NULL::bigint AS id, NULL::float AS score, NULL::bigint AS rn WHERE false';
-    if (useVector) {
-      params.push(toSqlVector(queryEmbedding!));
-      const p = params.length;
-      params.push(candidates);
-      const lim = params.length;
-      vectorCte = `
-        SELECT c.id, 1 - (c.embedding <=> $${p}::vector) AS score,
-               row_number() OVER (ORDER BY c.embedding <=> $${p}::vector) AS rn
-        FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE d.collection = $1${filter}
-        ORDER BY c.embedding <=> $${p}::vector
-        LIMIT $${lim}`;
+    const client = await this.pool.connect();
+    type LegRow = { id: string; document_id: string; ord: number; score: number; rn: string };
+    const toLeg = (rows: LegRow[]): LegHit[] =>
+      rows.map(r => ({
+        id: Number(r.id),
+        documentId: Number(r.document_id),
+        ord: Number(r.ord),
+        rank: Number(r.rn),
+        score: Number(r.score),
+      }));
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL hnsw.iterative_scan = strict_order');
+      if (filter) await client.query('SET LOCAL hnsw.ef_search = 100');
+      let vector: LegHit[] = [];
+      let text: LegHit[] = [];
+      if (useVector) {
+        const legParams = [...params, toSqlVector(queryEmbedding!), candidates];
+        const p = params.length + 1;
+        const lim = params.length + 2;
+        const res = await client.query<LegRow>(
+          `
+          SELECT c.id, c.document_id, c.ord, 1 - (c.embedding <=> $${p}::vector) AS score,
+                 row_number() OVER (ORDER BY c.embedding <=> $${p}::vector) AS rn
+          FROM chunks c JOIN documents d ON d.id = c.document_id
+          WHERE d.collection = $1${filter}
+          ORDER BY c.embedding <=> $${p}::vector
+          LIMIT $${lim}`,
+          legParams
+        );
+        vector = toLeg(res.rows);
+      }
+      if (useText) {
+        const legParams = [...params, queryText, candidates];
+        const q = params.length + 1;
+        const lim = params.length + 2;
+        const res = await client.query<LegRow>(
+          `
+          SELECT c.id, c.document_id, c.ord, ts_rank_cd(c.tsv, websearch_to_tsquery('english', $${q})) AS score,
+                 row_number() OVER (ORDER BY ts_rank_cd(c.tsv, websearch_to_tsquery('english', $${q})) DESC, c.id) AS rn
+          FROM chunks c JOIN documents d ON d.id = c.document_id
+          WHERE d.collection = $1${filter} AND c.tsv @@ websearch_to_tsquery('english', $${q})
+          ORDER BY score DESC, c.id
+          LIMIT $${lim}`,
+          legParams
+        );
+        text = toLeg(res.rows);
+      }
+      const hits = capPerNote(fuse(vector, text, ranking), ranking.perNoteCap).slice(0, k);
+      let results: SearchHit[] = [];
+      if (hits.length) {
+        const details = await client.query<{
+          id: string;
+          path: string;
+          title: string;
+          heading_path: string;
+          ord: number;
+          content: string;
+        }>(
+          `SELECT c.id, d.path, d.title, c.heading_path, c.ord, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.id = ANY($1::bigint[])`,
+          [hits.map(h => h.id)]
+        );
+        const byId = new Map(details.rows.map(r => [Number(r.id), r]));
+        results = hits.map(hit => {
+          const row = byId.get(hit.id)!;
+          return {
+            path: row.path,
+            title: row.title,
+            headingPath: row.heading_path,
+            ord: Number(row.ord),
+            score: Number(hit.fused.toFixed(5)),
+            vectorRank: hit.vectorRank,
+            textRank: hit.textRank,
+            snippet: snippetOf(row.content),
+          };
+        });
+      }
+      await client.query('COMMIT');
+      return results;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-
-    let textCte = 'SELECT NULL::bigint AS id, NULL::float AS score, NULL::bigint AS rn WHERE false';
-    if (useText) {
-      params.push(queryText);
-      const q = params.length;
-      params.push(candidates);
-      const lim = params.length;
-      textCte = `
-        SELECT c.id, ts_rank_cd(c.tsv, websearch_to_tsquery('english', $${q})) AS score,
-               row_number() OVER (ORDER BY ts_rank_cd(c.tsv, websearch_to_tsquery('english', $${q})) DESC) AS rn
-        FROM chunks c JOIN documents d ON d.id = c.document_id
-        WHERE d.collection = $1${filter} AND c.tsv @@ websearch_to_tsquery('english', $${q})
-        ORDER BY score DESC
-        LIMIT $${lim}`;
-    }
-
-    params.push(k);
-    const sql = `
-      WITH v AS (${vectorCte}), t AS (${textCte}),
-      fused AS (
-        SELECT COALESCE(v.id, t.id) AS id,
-               COALESCE(1.0 / (60 + v.rn), 0) + COALESCE(1.0 / (60 + t.rn), 0) AS rrf,
-               v.rn AS vrn, t.rn AS trn
-        FROM v FULL OUTER JOIN t ON v.id = t.id
-      )
-      SELECT d.path, d.title, c.heading_path, c.ord, c.content, f.rrf, f.vrn, f.trn
-      FROM fused f JOIN chunks c ON c.id = f.id JOIN documents d ON d.id = c.document_id
-      ORDER BY f.rrf DESC, c.ord ASC
-      LIMIT $${params.length}`;
-
-    const res = await this.pool.query<{
-      path: string;
-      title: string;
-      heading_path: string;
-      ord: number;
-      content: string;
-      rrf: string;
-      vrn: string | null;
-      trn: string | null;
-    }>(sql, params);
-    return res.rows.map(r => ({
-      path: r.path,
-      title: r.title,
-      headingPath: r.heading_path,
-      ord: r.ord,
-      score: Number(Number(r.rrf).toFixed(5)),
-      vectorRank: r.vrn === null ? null : Number(r.vrn),
-      textRank: r.trn === null ? null : Number(r.trn),
-      snippet: snippetOf(r.content),
-    }));
   }
 
   /**

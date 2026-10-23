@@ -66,5 +66,6 @@ CREATE INDEX IF NOT EXISTS chunks_tsv_gin ON chunks USING gin (tsv);
 CREATE INDEX IF NOT EXISTS documents_tags_gin ON documents USING gin (tags);
 CREATE INDEX IF NOT EXISTS documents_collection_path ON documents (collection, path);
 CREATE INDEX IF NOT EXISTS documents_type ON documents ((frontmatter->>'type'));
+CREATE INDEX IF NOT EXISTS documents_status ON documents ((frontmatter->>'status'));
 CREATE INDEX IF NOT EXISTS links_target_path ON links (target_path);
 CREATE INDEX IF NOT EXISTS index_runs_collection_started ON index_runs (collection, started_at DESC);

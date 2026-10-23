@@ -4,6 +4,9 @@ import os from 'os';
 import path from 'path';
 import { SearchService } from '../src/index/SearchService.js';
 import { scanOnce } from '../src/index/scanner.js';
+import { IndexStore } from '../src/index/store.js';
+import { DEFAULT_RANKING } from '../src/index/ranking.js';
+import pgvector from 'pgvector/pg';
 
 /**
  * End-to-end against a real pgvector. Skipped unless TEST_DATABASE_URL is set.
@@ -233,5 +236,177 @@ Keep familylaw-db separate; federate at the client.
         root
       )
     ).rejects.toThrow(/refusing to index/);
+  });
+});
+
+
+run('configurable ranking against pgvector', () => {
+  let root;
+  let service;
+  let forced;
+  let readOnly;
+  const collection = `test-ranking-${process.pid}-${Date.now()}`;
+  const LEGACY_SQL = `
+      WITH v AS (
+        SELECT c.id, 1 - (c.embedding <=> $2::vector) AS score,
+               row_number() OVER (ORDER BY c.embedding <=> $2::vector) AS rn
+        FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE d.collection = $1
+        ORDER BY c.embedding <=> $2::vector
+        LIMIT $3), t AS (
+        SELECT c.id, ts_rank_cd(c.tsv, websearch_to_tsquery('english', $4)) AS score,
+               row_number() OVER (ORDER BY ts_rank_cd(c.tsv, websearch_to_tsquery('english', $4)) DESC, c.id) AS rn
+        FROM chunks c JOIN documents d ON d.id = c.document_id
+        WHERE d.collection = $1 AND c.tsv @@ websearch_to_tsquery('english', $4)
+        ORDER BY score DESC, c.id
+        LIMIT $5),
+      fused AS (
+        SELECT COALESCE(v.id, t.id) AS id,
+               COALESCE(1.0 / (60 + v.rn), 0) + COALESCE(1.0 / (60 + t.rn), 0) AS rrf,
+               v.rn AS vrn, t.rn AS trn
+        FROM v FULL OUTER JOIN t ON v.id = t.id
+      )
+      SELECT d.path, d.title, c.heading_path, c.ord, c.content, f.rrf, f.vrn, f.trn
+      FROM fused f JOIN chunks c ON c.id = f.id JOIN documents d ON d.id = c.document_id
+      ORDER BY f.rrf DESC, c.ord ASC, c.id ASC
+      LIMIT $6`;
+  const write = async (rel, content) => {
+    const abs = path.join(root, rel);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, content);
+  };
+
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'vault-ranking-'));
+    for (let n = 0; n < 3; n++) {
+      await write(
+        `Decisions/choice-${n}.md`,
+        `---
+title: alpha
+type: decision
+---
+# alpha
+
+${Array.from({ length: 4 }, (_, i) => `## Section ${n} ${i}\n\n${'alpha '.repeat(12 + n * 4 + i)}`).join('\n\n')}`
+      );
+    }
+    for (let n = 0; n < 150; n++) {
+      await write(`Filler/item-${n}.md`, `# Filler ${n}\n\nalpha beta gamma filler ${n}`);
+    }
+    await write(
+      'Areas/ubuntubox.md',
+      '---\ntitle: ubuntubox\ntype: area\nstatus: active\ntags: [infra, docker]\nsummary: Docker on ubuntubox waits for the NFS mount before starting.\n---\n# ubuntubox\n\n## Docker waits for the mount\n\nRequiresMountsFor=/dsm in a systemd drop-in so docker never starts against an empty directory.\n\n## Wake on LAN\n\nErP Ready must be disabled in the BIOS or the NIC has no standby power.\n'
+    );
+    service = await SearchService.create(
+      {
+        databaseUrl: DB,
+        collection,
+        embedder: { provider: 'fake', dim: 64, model: 'fake' },
+        intervalSeconds: 60,
+        ranking: DEFAULT_RANKING,
+      },
+      root
+    );
+    const stats = await scanOnce({
+      vaultPath: root,
+      store: service.store,
+      embedder: service.embedder,
+    });
+    expect(stats.errors).toBe(0);
+    expect(stats.changed).toBe(154);
+    // A selective join can use B-tree/bitmap scans plus a sort even when
+    // sequential scans are disabled. Discourage that sort so this test
+    // actually exercises HNSW; these options never affect production.
+    forced = new IndexStore({
+      connectionString: DB,
+      collection,
+      pgOptions: '-c enable_seqscan=off -c enable_sort=off',
+    });
+    readOnly = new IndexStore({ connectionString: DB, collection, readOnly: true });
+  }, 30000);
+
+  afterAll(async () => {
+    try {
+      if (service) {
+        await service.store['pool'].query("DELETE FROM meta WHERE key = 'ro-probe'");
+        await service.store.truncateCollection();
+      }
+    } finally {
+      await Promise.all([service?.close(), forced?.close(), readOnly?.close()]);
+      if (root) await fs.rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'RequiresMountsFor',
+    'docker systemd mount drop-in',
+    'alpha decision',
+    'bake bread',
+    'zzzznomatch',
+  ])('matches legacy scores and tie-group membership: %s', async query => {
+    const [vector] = await service.embedder.embed([query]);
+    const hits = await service.store.search(vector, query, { k: 50, ranking: DEFAULT_RANKING });
+    const legacy = await service.store['pool'].query(LEGACY_SQL, [
+      collection,
+      pgvector.toSql(vector),
+      50,
+      query,
+      50,
+      50,
+    ]);
+    const expected = legacy.rows.map(r => ({ ...r, score: Number(Number(r.rrf).toFixed(5)) }));
+    expect(hits.map(h => h.score)).toEqual(expected.map(h => h.score));
+    for (let start = 0; start < hits.length;) {
+      let end = start + 1;
+      while (end < hits.length && hits[end].score === hits[start].score) end++;
+      expect(new Set(hits.slice(start, end).map(h => `${h.path}#${h.ord}`))).toEqual(
+        new Set(expected.slice(start, end).map(h => `${h.path}#${h.ord}`))
+      );
+      start = end;
+    }
+  });
+
+  it('uses the HNSW index and fills a filtered vector result', async () => {
+    const [vector] = await service.embedder.embed(['alpha beta gamma']);
+    const plan = await forced['pool'].query(
+      `EXPLAIN
+      SELECT c.id, c.document_id, c.ord, 1 - (c.embedding <=> $3::vector) AS score,
+             row_number() OVER (ORDER BY c.embedding <=> $3::vector) AS rn
+      FROM chunks c JOIN documents d ON d.id = c.document_id
+      WHERE d.collection = $1 AND d.path LIKE $2 || '%'
+      ORDER BY c.embedding <=> $3::vector
+      LIMIT $4`,
+      [collection, 'Decisions/', pgvector.toSql(vector), 40]
+    );
+    expect(plan.rows.map(r => r['QUERY PLAN']).join('\n')).toContain('chunks_embedding_hnsw');
+    const hits = await forced.search(vector, 'alpha beta gamma', {
+      directory: 'Decisions',
+      k: 8,
+      mode: 'vector',
+    });
+    expect(hits).toHaveLength(8);
+    expect(hits.every(h => h.path.startsWith('Decisions/'))).toBe(true);
+  });
+
+  it('enforces read-only database access', async () => {
+    await expect(
+      readOnly['pool'].query("INSERT INTO meta (key, value) VALUES ('ro-probe', 'x')")
+    ).rejects.toThrow(/read-only/);
+  });
+
+  it('caps chunks per note while the baseline permits at least three', async () => {
+    const [vector] = await service.embedder.embed(['alpha']);
+    const counts = hits =>
+      Object.values(hits.reduce((acc, h) => ({ ...acc, [h.path]: (acc[h.path] ?? 0) + 1 }), {}));
+    const baseline = await service.store.search(vector, 'alpha', {
+      k: 8,
+      ranking: DEFAULT_RANKING,
+    });
+    expect(Math.max(...counts(baseline))).toBeGreaterThanOrEqual(3);
+    const capped = await service.store.search(vector, 'alpha', {
+      k: 8,
+      ranking: { ...DEFAULT_RANKING, perNoteCap: 2 },
+    });
+    expect(Math.max(...counts(capped))).toBeLessThanOrEqual(2);
   });
 });
