@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-10-23
+
+### Added
+- An optional learn log for searches, note reads, explicit feedback and SSE session lifecycle, off by default. Configure `LEARN_LOG`, `LEARN_REDACT_PATTERNS_FILE` and `LEARN_RETENTION_DAYS` (30 days by default).
+- A `requestId` on logged search results and an optional `requestId` argument on the three read tools to link reads to searches.
+- The `search-feedback` tool and the read-only `learn-report` CLI.
+- `sql/002_learning.sql`, with pattern redaction before storage and daily query-text, embedding and feedback-note retention in the indexer loop.
+
+### Changed
+- Search ranking is unchanged. Learn logs are never read back into search.
+
 ## [1.9.1] - 2026-10-23
 
 ### Fixed

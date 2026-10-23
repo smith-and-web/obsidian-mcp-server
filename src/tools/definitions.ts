@@ -24,6 +24,11 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        requestId: {
+          type: 'string',
+          description:
+            'The requestId of the search that led to this read, if any. Pass it when reading a note found by semantic-search, similar-notes or search-vault.',
+        },
         path: { type: 'string', description: 'Path to the note' },
         frontmatterOnly: {
           type: 'boolean',
@@ -40,6 +45,11 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        requestId: {
+          type: 'string',
+          description:
+            'The requestId of the search that led to this read, if any. Pass it when reading a note found by semantic-search, similar-notes or search-vault.',
+        },
         paths: {
           type: 'array',
           items: { type: 'string' },
@@ -482,6 +492,11 @@ export const toolDefinitions: ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        requestId: {
+          type: 'string',
+          description:
+            'The requestId of the search that led to this read, if any. Pass it when reading a note found by semantic-search, similar-notes or search-vault.',
+        },
         path: { type: 'string', description: 'Path to the note' },
         heading: { type: 'string', description: "Markdown heading (e.g., '### Thinking Style')" },
       },
@@ -606,6 +621,43 @@ export const semanticToolDefinitions: ToolDefinition[] = [
  * Tool list for a server instance: the core tools, plus the semantic tools
  * when a search service is configured.
  */
-export function getToolDefinitions(options: { semantic: boolean }): ToolDefinition[] {
-  return options.semantic ? [...toolDefinitions, ...semanticToolDefinitions] : toolDefinitions;
+export function getToolDefinitions({
+  semantic,
+  learn = false,
+}: {
+  semantic: boolean;
+  learn?: boolean;
+}): ToolDefinition[] {
+  if (!semantic) return toolDefinitions;
+  return [
+    ...toolDefinitions,
+    ...semanticToolDefinitions,
+    ...(learn ? [feedbackToolDefinition] : []),
+  ];
 }
+
+const feedbackToolDefinition: ToolDefinition = {
+  name: 'search-feedback',
+  description:
+    'Record how useful a search was. Call once after answering from semantic-search, similar-notes or search-vault results: pass the requestId, a rating, and the paths you relied on. Use source "user" only when Josh himself said the answer was right or wrong, with expectedPaths for the notes that should have been found.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      requestId: { type: 'string', description: 'requestId returned by the search' },
+      rating: { type: 'string', enum: ['positive', 'negative', 'neutral'] },
+      usedPaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Vault paths the answer relied on',
+      },
+      expectedPaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Paths that should have been found but were not',
+      },
+      note: { type: 'string', description: 'Optional short reason' },
+      source: { type: 'string', enum: ['agent', 'user'], description: 'Default agent' },
+    },
+    required: ['requestId', 'rating'],
+  },
+};

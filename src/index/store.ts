@@ -155,9 +155,13 @@ export class IndexStore {
     // dist/index/store.js → ../../sql ; src/index/store.ts → ../../sql
     const sqlPath = path.resolve(here, '..', '..', 'sql', '001_schema.sql');
     const ddl = (await fs.readFile(sqlPath, 'utf-8')).replace(/__DIM__/g, String(dim));
+    const learningDdl = (
+      await fs.readFile(path.resolve(here, '..', '..', 'sql', '002_learning.sql'), 'utf-8')
+    ).replace(/__DIM__/g, String(dim));
     const client = await this.pool.connect();
     try {
       await client.query(ddl);
+      await client.query(learningDdl);
       const existing = await client.query<{ key: string; value: string }>(
         'SELECT key, value FROM meta WHERE key IN ($1, $2, $3)',
         ['embed_model', 'dim', 'schema_version']
@@ -200,6 +204,7 @@ export class IndexStore {
    * dimension changes, because a vector column's dimension is fixed.
    */
   async resetSchema(): Promise<void> {
+    await this.pool.query('ALTER TABLE IF EXISTS search_log DROP COLUMN IF EXISTS query_embedding');
     await this.pool.query(
       'DROP TABLE IF EXISTS links, chunks, documents, index_runs, meta CASCADE'
     );
@@ -210,6 +215,257 @@ export class IndexStore {
       'SELECT key, value FROM meta'
     );
     return Object.fromEntries(res.rows.map(r => [r.key, r.value]));
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value',
+      [key, value]
+    );
+  }
+
+  async insertSearchLog(row: {
+    id: string;
+    sessionId: string | null;
+    clientName: string | null;
+    tool: string;
+    query: string | null;
+    redacted: boolean;
+    embedding: number[] | null;
+    params: Record<string, unknown>;
+    ranker: string;
+    results: unknown[];
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO search_log
+       (id, collection, session_id, client_name, tool, query, redacted, query_embedding, params, ranker, results)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, $10, $11::jsonb)`,
+      [
+        row.id,
+        this.collection,
+        row.sessionId,
+        row.clientName,
+        row.tool,
+        row.query,
+        row.redacted,
+        row.embedding === null ? null : toSqlVector(row.embedding),
+        JSON.stringify(row.params),
+        row.ranker,
+        JSON.stringify(row.results),
+      ]
+    );
+  }
+
+  async insertNoteReads(
+    rows: {
+      sessionId: string | null;
+      clientName: string | null;
+      tool: string;
+      path: string;
+      requestId: string | null;
+    }[]
+  ): Promise<void> {
+    const values: unknown[] = [this.collection];
+    const tuples = rows.map(row => {
+      const start = values.length + 1;
+      const requestId =
+        row.requestId &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.requestId)
+          ? row.requestId
+          : null;
+      values.push(row.sessionId, row.clientName, row.tool, row.path, requestId);
+      return `($1, $${start}, $${start + 1}, $${start + 2}, $${start + 3},
+        (SELECT id FROM search_log WHERE id = $${start + 4}::uuid AND collection = $1))`;
+    });
+    await this.pool.query(
+      `INSERT INTO note_reads (collection, session_id, client_name, tool, path, request_id)
+       VALUES ${tuples.join(', ')}`,
+      values
+    );
+  }
+
+  async insertFeedback(row: {
+    searchId: string;
+    source: 'user' | 'agent';
+    rating: 'positive' | 'negative' | 'neutral';
+    usedPaths: string[];
+    expectedPaths: string[];
+    note: string | null;
+    redacted: boolean;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO search_feedback (search_id, source, rating, used_paths, expected_paths, note, redacted)
+       SELECT id, $3, $4, $5::text[], $6::text[], $7, $8
+       FROM search_log WHERE id = $2::uuid AND collection = $1`,
+      [
+        this.collection,
+        row.searchId,
+        row.source,
+        row.rating,
+        row.usedPaths,
+        row.expectedPaths,
+        row.note,
+        row.redacted,
+      ]
+    );
+  }
+
+  async searchLogExists(id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      'SELECT 1 FROM search_log WHERE id = $2::uuid AND collection = $1',
+      [this.collection, id]
+    );
+    return result.rows.length > 0;
+  }
+
+  async upsertSession(row: {
+    sessionId: string;
+    clientName: string | null;
+    clientVersion: string | null;
+  }): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO mcp_sessions (session_id, collection, transport, client_name, client_version)
+       VALUES ($1, $2, 'sse', $3, $4)
+       ON CONFLICT (session_id) DO UPDATE SET client_name = EXCLUDED.client_name, client_version = EXCLUDED.client_version`,
+      [row.sessionId, this.collection, row.clientName, row.clientVersion]
+    );
+  }
+
+  async closeSession(sessionId: string): Promise<void> {
+    await this.pool.query(
+      'UPDATE mcp_sessions SET closed_at = now() WHERE session_id = $1 AND closed_at IS NULL',
+      [sessionId]
+    );
+  }
+
+  async applyRetention(days: number): Promise<{ queries: number; notes: number }> {
+    const client = await this.pool.connect();
+    let releaseErr: Error | undefined;
+    try {
+      await client.query('BEGIN');
+      const queries = await client.query(
+        `UPDATE search_log SET query = NULL, query_embedding = NULL
+         WHERE collection = $1 AND at < now() - make_interval(days => $2)
+           AND (query IS NOT NULL OR query_embedding IS NOT NULL)`,
+        [this.collection, days]
+      );
+      const notes = await client.query(
+        `UPDATE search_feedback f SET note = NULL FROM search_log s
+         WHERE f.search_id = s.id AND s.collection = $1
+           AND f.at < now() - make_interval(days => $2) AND f.note IS NOT NULL`,
+        [this.collection, days]
+      );
+      await client.query('COMMIT');
+      return { queries: queries.rowCount ?? 0, notes: notes.rowCount ?? 0 };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        releaseErr = rollbackErr as Error;
+      }
+      throw err;
+    } finally {
+      if (releaseErr) client.release(releaseErr);
+      else client.release();
+    }
+  }
+
+  async learnReportSessions(days: number) {
+    const totals = await this.pool.query<{ total: string; median: number | null }>(
+      `SELECT count(*) AS total,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM (closed_at - connected_at)) / 60)
+         FILTER (WHERE closed_at IS NOT NULL) AS median
+       FROM mcp_sessions WHERE collection = $1 AND connected_at >= now() - make_interval(days => $2)`,
+      [this.collection, days]
+    );
+    const clients = await this.pool.query<{ client: string; n: string }>(
+      `SELECT coalesce(client_name, '(none)') AS client, count(*) AS n FROM mcp_sessions
+       WHERE collection = $1 AND connected_at >= now() - make_interval(days => $2)
+       GROUP BY 1 ORDER BY 1`,
+      [this.collection, days]
+    );
+    return { ...totals.rows[0], clients: clients.rows };
+  }
+
+  async learnReportSearches(days: number) {
+    const result = await this.pool.query<{ tool: string; n: string; redacted: string }>(
+      `SELECT tool, count(*) AS n, count(*) FILTER (WHERE redacted) AS redacted FROM search_log
+       WHERE collection = $1 AND at >= now() - make_interval(days => $2) GROUP BY tool`,
+      [this.collection, days]
+    );
+    return result.rows;
+  }
+
+  async learnReportLinks(days: number) {
+    const result = await this.pool.query<{
+      semantic: string;
+      linked: string;
+      reads: string;
+      at1: string;
+      at3: string;
+      at8: string;
+      misses: string;
+    }>(
+      `WITH searches AS (
+         SELECT id, results FROM search_log WHERE collection = $1 AND tool = 'semantic-search'
+           AND at >= now() - make_interval(days => $2)
+       ), reads AS (
+         SELECT r.request_id, (SELECT min((hit->>'rank')::int)
+           FROM jsonb_array_elements(s.results) hit WHERE hit->>'path' = r.path) AS rank
+         FROM note_reads r JOIN searches s ON s.id = r.request_id
+         WHERE r.collection = $1 AND r.at >= now() - make_interval(days => $2)
+       ) SELECT (SELECT count(*) FROM searches) AS semantic,
+         count(DISTINCT request_id) AS linked, count(*) AS reads,
+         count(*) FILTER (WHERE rank <= 1) AS at1, count(*) FILTER (WHERE rank <= 3) AS at3,
+         count(*) FILTER (WHERE rank <= 8) AS at8, count(*) FILTER (WHERE rank IS NULL) AS misses
+       FROM reads`,
+      [this.collection, days]
+    );
+    return result.rows[0];
+  }
+
+  async learnReportBehaviour(days: number) {
+    const result = await this.pool.query<{
+      total: string;
+      reformulations: string;
+      fallbacks: string;
+    }>(
+      `WITH searches AS (
+         SELECT id, at, session_id, tool FROM search_log
+         WHERE collection = $1 AND at >= now() - make_interval(days => $2)
+       ) SELECT count(*) AS total,
+         count(*) FILTER (WHERE EXISTS (SELECT 1 FROM searches next
+           WHERE next.session_id = s.session_id AND next.tool = 'semantic-search'
+             AND next.at > s.at AND next.at <= s.at + interval '120 seconds')) AS reformulations,
+         count(*) FILTER (WHERE EXISTS (SELECT 1 FROM searches next
+           WHERE next.session_id = s.session_id AND next.tool = 'search-vault'
+             AND next.at > s.at AND next.at <= s.at + interval '120 seconds')) AS fallbacks
+       FROM searches s WHERE s.tool = 'semantic-search' AND s.session_id IS NOT NULL`,
+      [this.collection, days]
+    );
+    return result.rows[0];
+  }
+
+  async learnReportFeedback(days: number) {
+    const result = await this.pool.query<{
+      total: string;
+      agent: string;
+      user: string;
+      negative: string;
+      negative_user: string;
+      covered: string;
+    }>(
+      `SELECT count(*) AS total, count(*) FILTER (WHERE f.source = 'agent') AS agent,
+         count(*) FILTER (WHERE f.source = 'user') AS "user",
+         count(*) FILTER (WHERE f.rating = 'negative') AS negative,
+         count(*) FILTER (WHERE f.rating = 'negative' AND f.source = 'user') AS negative_user,
+         count(DISTINCT s.id) FILTER (WHERE s.tool = 'semantic-search') AS covered
+       FROM search_feedback f JOIN search_log s ON s.id = f.search_id
+       WHERE s.collection = $1 AND s.at >= now() - make_interval(days => $2)
+         AND f.at >= now() - make_interval(days => $2)`,
+      [this.collection, days]
+    );
+    return result.rows[0];
   }
 
   // ------------------------------------------------------------------

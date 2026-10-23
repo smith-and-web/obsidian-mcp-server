@@ -246,6 +246,7 @@ Or connect directly to the SSE endpoint at `http://localhost:3001/sse` if the cl
 | `similar-notes` | Notes nearest to a note by centroid embedding |
 | `index-status` | Model, counts, last indexer run and lag |
 | `reindex-note` | Re-index one note immediately |
+| `search-feedback` | Record a search rating and used or expected paths; available only with the learn log enabled |
 
 See [Semantic search](#semantic-search) for setup.
 
@@ -303,6 +304,8 @@ obsidian-mcp-server/
 │   │   ├── store.ts          # pgvector schema, upserts, hybrid search
 │   │   ├── scanner.ts        # Vault walk and change detection
 │   │   └── SearchService.ts  # What the MCP tools call
+│   ├── learn/                # Learn log, redaction, configuration and reports
+│   ├── learn-report.ts       # Read-only learn-report CLI
 │   ├── eval/                 # Golden validation, metrics and fixed ranking grid
 │   ├── eval.ts               # Read-only brain-eval CLI entry point
 │   ├── indexer.ts            # Indexer entry point (second container)
@@ -330,6 +333,9 @@ obsidian-mcp-server/
 | `DATABASE_URL` | *(none)* | Postgres + pgvector connection string. **Enables semantic search**; unset = feature off |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama server for embeddings |
 | `EMBED_MODEL` | `nomic-embed-text` | Ollama embedding model; dimension is discovered from it |
+| `LEARN_LOG` | `false` | Enable the optional learn log; invalid configuration disables logging |
+| `LEARN_REDACT_PATTERNS_FILE` | unset | Required readable regex file when logging is enabled |
+| `LEARN_RETENTION_DAYS` | `30` | Days before query text, embeddings and feedback notes are cleared; integer 1–3650 |
 | `INDEX_COLLECTION` | `default` | Name of this vault's collection in the shared database |
 | `SEARCH_FUSION` | `rrf` | Fusion: `rrf` (weighted reciprocal rank) or `dbsf` (distribution-based score fusion) |
 | `SEARCH_RRF_K` | `60` | RRF rank constant, integer 1–1000; validated but unused under DBSF |
@@ -341,6 +347,33 @@ obsidian-mcp-server/
 | `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
 | `EMBED_PROVIDER` | `ollama` | `ollama`, or `fake` (deterministic hash embeddings for tests and smoke runs; not for real search) |
 | `EMBED_DIM` | *(auto)* | Embedding dimension for the `fake` provider (default 64); ignored with Ollama, where it is discovered from the model |
+
+## Learn log
+
+The optional measurement layer requires semantic search and is off by default. It records the three search tools (`semantic-search`, `similar-notes`, `search-vault`), successful reads (`read-note`, `read-multiple-notes`, `read-section`), explicit feedback and SSE session connect/close with client names. Search ranking is unchanged; search never reads these logs.
+
+Set `LEARN_LOG=true` and `LEARN_REDACT_PATTERNS_FILE` to a readable UTF-8 file. Blank lines and comments are ignored, whitespace is trimmed, and each other line is a JavaScript regex source compiled case-insensitively. An example file is:
+
+```text
+# comment
+\bexample-term\b
+```
+
+Eight built-in patterns also detect private-key headers, access-key shapes, JWTs, hosted Git tokens, secret assignments, bearer credentials, URL token parameters and 64-character hex strings. Sensitive queries (including similar-note paths) and their embeddings are cleared before storage. Sensitive string parameters become `[redacted]`; sensitive feedback notes are cleared, sensitive feedback paths are dropped, and sensitive read paths are never logged. Site-specific patterns belong in the external file. An invalid configuration disables logging, never search, and is reported at startup.
+
+Logged searches return an additive `requestId`. Pass it to a read's optional `requestId` argument, then call `search-feedback` with `requestId`, `rating` (`positive`, `negative`, `neutral`) and `usedPaths`. `expectedPaths` and a short `note` are optional. `source` defaults to `agent`; use `user` only for explicit human feedback. Unknown ids return `{ recorded: false, reason: 'unknown requestId' }`. Reads with unknown ids are recorded without a link.
+
+Search, read and session writes are fire and forget: they never delay tool responses and failures are logged with `learn-log:`. Feedback is awaited. The indexer loop applies retention at most daily, excluding `--once`. After `LEARN_RETENTION_DAYS` (default 30), query text, query embeddings and feedback notes are cleared. Paths, ranks, timestamps, checked parameters, client names and feedback paths remain. `sql/002_learning.sql` creates the four learn tables even when logging is off; the embedding column is recreated after a dimension reset. Keep learn-table data out of database dumps and exclude raw database files from backups when query retention is required.
+
+Run the read-only report against an existing database:
+
+```bash
+node dist/learn-report.js --days 30 --out /existing-directory/learn-report.json
+```
+
+`--days` defaults to 30 (range 1–365); the output directory must already exist. It uses a read-only connection, ignores ranking and logging environment settings, and outputs counts and rates without query text. Stdout lists dotted keys in report order, followed by `VOLUME GATE: pass|fail`.
+
+The report covers the selected collection and time window. Sessions include counts by client and the median closed duration in minutes. Searches include counts by tool and redacted share. Linked semantic reads use the minimum rank of the read path: `usedAt1`, `usedAt3`, `usedAt8` are shares of linked reads, and `missRate` is the share absent from results. `linkedSearchRate` is the share of semantic searches with a linked read, and `linkedSemanticPerDay` is their daily count. Reformulation and fallback rates count session-linked semantic searches followed within 120 seconds by another semantic search or text search. Feedback coverage is the share of semantic searches with feedback; source counts and negative rates include all feedback. Zero-denominator rates and empty medians are `null`; numbers are rounded to four decimals. The volume gate passes at a rounded 30 linked semantic searches per day. Feedback from agents measures compliance; user corrections provide independent labels.
 
 ## Semantic search
 

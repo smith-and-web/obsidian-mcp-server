@@ -7,6 +7,7 @@
 
 import type { EmbedderConfig } from './embedder.js';
 import { parseRankingEnv, type RankingConfig } from './ranking.js';
+import { readLearnConfig, type LearnConfig } from '../learn/config.js';
 
 export interface IndexConfig {
   databaseUrl: string;
@@ -14,6 +15,7 @@ export interface IndexConfig {
   embedder: EmbedderConfig;
   intervalSeconds: number;
   ranking: RankingConfig;
+  learn: LearnConfig;
 }
 
 export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConfig | null {
@@ -33,5 +35,6 @@ export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConf
     },
     intervalSeconds: Math.max(5, Number(env.INDEX_INTERVAL_SECONDS || 60)),
     ranking: parseRankingEnv(env),
+    learn: readLearnConfig(env),
   };
 }

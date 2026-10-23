@@ -12,7 +12,8 @@ import { IndexStore, type IndexStatus, type SearchHit, type SimilarHit } from '.
 import { indexFile } from './scanner.js';
 import { isExcludedPath } from './exclusions.js';
 import type { IndexConfig } from './config.js';
-import type { RankingConfig } from './ranking.js';
+import { DEFAULT_RANKING, rankingId, type RankingConfig } from './ranking.js';
+import { LearnLog, NO_CONTEXT, type CallContext } from '../learn/log.js';
 
 export interface SemanticSearchOptions {
   k?: number;
@@ -24,12 +25,14 @@ export interface SemanticSearchOptions {
 }
 
 export interface SemanticSearchResult {
+  requestId?: string;
   query: string;
   mode: 'hybrid' | 'vector' | 'text';
   results: SearchHit[];
 }
 
 export interface SimilarNotesResult {
+  requestId?: string;
   path: string;
   results: SimilarHit[];
 }
@@ -45,6 +48,7 @@ export interface ReindexNoteResult {
 export class SearchService {
   readonly store: IndexStore;
   readonly embedder: Embedder;
+  readonly learn: LearnLog | null;
   private vaultPath: string;
   private ranking: RankingConfig;
 
@@ -52,12 +56,14 @@ export class SearchService {
     store: IndexStore,
     embedder: Embedder,
     vaultPath: string,
-    ranking: RankingConfig
+    ranking: RankingConfig,
+    learn: LearnLog | null
   ) {
     this.store = store;
     this.embedder = embedder;
     this.vaultPath = vaultPath;
     this.ranking = ranking;
+    this.learn = learn;
   }
 
   /**
@@ -71,7 +77,13 @@ export class SearchService {
       collection: config.collection,
     });
     await store.ensureSchema(embedder.model, embedder.dim);
-    return new SearchService(store, embedder, vaultPath, config.ranking);
+    return new SearchService(
+      store,
+      embedder,
+      vaultPath,
+      config.ranking,
+      config.learn?.enabled ? new LearnLog(store, config.learn) : null
+    );
   }
 
   async close(): Promise<void> {
@@ -83,7 +95,8 @@ export class SearchService {
    */
   async semanticSearch(
     query: string,
-    options: SemanticSearchOptions = {}
+    options: SemanticSearchOptions = {},
+    ctx: CallContext = NO_CONTEXT
   ): Promise<SemanticSearchResult> {
     const mode = options.mode ?? 'hybrid';
     const trimmed = query.trim();
@@ -98,15 +111,43 @@ export class SearchService {
       status: options.status,
       ranking: this.ranking,
     });
-    return { query, mode, results };
+    if (!this.learn) return { query, mode, results };
+    const requestId = this.learn.newRequestId();
+    this.learn.logSearch({
+      id: requestId,
+      ctx,
+      tool: 'semantic-search',
+      query: trimmed,
+      embedding,
+      params: { ...options },
+      ranker: rankingId(this.ranking ?? DEFAULT_RANKING),
+      results: results.map((hit, i) => ({ path: hit.path, ord: hit.ord, rank: i + 1 })),
+    });
+    return { query, mode, results, requestId };
   }
 
   /**
    * Notes nearest to a given note.
    */
-  async similarNotes(notePath: string, k = 8): Promise<SimilarNotesResult> {
+  async similarNotes(
+    notePath: string,
+    k?: number,
+    ctx: CallContext = NO_CONTEXT
+  ): Promise<SimilarNotesResult> {
     const results = await this.store.similar(notePath, k);
-    return { path: notePath, results };
+    if (!this.learn) return { path: notePath, results };
+    const requestId = this.learn.newRequestId();
+    this.learn.logSearch({
+      id: requestId,
+      ctx,
+      tool: 'similar-notes',
+      query: notePath,
+      embedding: null,
+      params: k === undefined ? {} : { k },
+      ranker: 'centroid',
+      results: results.map((hit, i) => ({ path: hit.path, rank: i + 1 })),
+    });
+    return { path: notePath, results, requestId };
   }
 
   async indexStatus(): Promise<IndexStatus> {

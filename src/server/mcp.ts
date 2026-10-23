@@ -8,6 +8,7 @@ import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprot
 import { getToolDefinitions, executeToolCall } from '../tools/index.js';
 import type { VaultManager } from '../vault/VaultManager.js';
 import type { SearchService } from '../index/SearchService.js';
+import type { LearnLog } from '../learn/log.js';
 import type { Request, Response } from 'express';
 
 interface MCPRequest {
@@ -31,15 +32,17 @@ interface MCPServerHandlers {
 export function createMCPServer(
   vaultManager: VaultManager,
   search: SearchService | null = null,
-  instructions?: string
+  instructions?: string,
+  learn: LearnLog | null = null
 ): MCPServerHandlers {
-  const toolDefinitions = getToolDefinitions({ semantic: search !== null });
+  const toolDefinitions = getToolDefinitions({ semantic: search !== null, learn: learn !== null });
   // Track active SSE transports by sessionId so /message POSTs can be routed
   // back to the correct stream. Required by the standard MCP-over-SSE flow:
   // the SSE stream emits an `endpoint` event pointing at /message?sessionId=...,
   // and the client POSTs JSON-RPC messages there. We must hand those off to
   // transport.handlePostMessage() so responses are streamed back over SSE.
   const transports = new Map<string, SSEServerTransport>();
+  const clientNames = new Map<string, string | null>();
 
   /**
    * Handle SSE connection (GET /sse)
@@ -49,6 +52,8 @@ export function createMCPServer(
     transports.set(transport.sessionId, transport);
     req.on('close', () => {
       transports.delete(transport.sessionId);
+      learn?.sessionClosed(transport.sessionId);
+      clientNames.delete(transport.sessionId);
     });
 
     const server = new Server(
@@ -68,7 +73,7 @@ export function createMCPServer(
     server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: toolDefinitions }));
 
     // Register tool execution handler
-    server.setRequestHandler(CallToolRequestSchema, async request => {
+    server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
       const { name, arguments: args } = request.params;
 
       try {
@@ -76,7 +81,12 @@ export function createMCPServer(
           name,
           args as Record<string, unknown>,
           vaultManager,
-          search
+          search,
+          {
+            sessionId: extra.sessionId ?? null,
+            clientName: clientNames.get(extra.sessionId ?? '') ?? null,
+          },
+          learn
         );
         return {
           content: [
@@ -99,6 +109,11 @@ export function createMCPServer(
       }
     });
 
+    server.oninitialized = () => {
+      const v = server.getClientVersion();
+      clientNames.set(transport.sessionId, v?.name ?? null);
+      learn?.sessionStarted(transport.sessionId, v);
+    };
     await server.connect(transport);
     console.log(`MCP server connected via SSE (session: ${transport.sessionId})`);
   }
@@ -161,7 +176,14 @@ export function createMCPServer(
       const { name, arguments: args } = params!;
 
       try {
-        const result = await executeToolCall(name, args, vaultManager, search);
+        const result = await executeToolCall(
+          name,
+          args,
+          vaultManager,
+          search,
+          { sessionId: null, clientName: 'post' },
+          learn
+        );
         return res.json({
           jsonrpc: '2.0',
           id,

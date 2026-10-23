@@ -52,6 +52,8 @@ src/
 │   ├── store.ts            # All SQL: schema, upserts, hybrid search
 │   ├── scanner.ts          # Vault walk, change detection, one reconcile pass
 │   └── SearchService.ts    # What the tools call
+├── learn/                  # Learn log, redaction, configuration and report assembly
+├── learn-report.ts         # Read-only learn-report CLI entrypoint
 ├── eval/                   # Golden schema, metrics and ranking grid
 ├── eval.ts                 # Read-only brain-eval CLI entrypoint
 ├── indexer.ts              # Indexer entrypoint (same image, second container)
@@ -59,6 +61,7 @@ src/
     └── index.ts            # Shared types
 
 sql/001_schema.sql           # Index DDL; __DIM__ substituted at start
+sql/002_learning.sql         # Learn log DDL; applied even when logging is disabled
 tests/                       # Vitest specs (*.test.js) — mirror the src module under test
 examples/test-vault/         # Sample vault used by examples and manual testing
 ```
@@ -79,7 +82,7 @@ with `TEST_DATABASE_URL` pointing at a Postgres with pgvector (`EMBED_PROVIDER=f
 
 ## Code style
 
-- `async`/`await` for all async work; no raw `.then()` chains.
+- `async`/`await` for all async work; no raw `.then()` chains. The only exception is `.catch(...)` on fire-and-forget promises in `src/learn/log.ts`.
 - Descriptive names; keep functions focused and single-purpose.
 - JSDoc on public `VaultManager` methods.
 - Validate and normalize vault-relative paths; never allow traversal outside `VAULT_PATH`.
