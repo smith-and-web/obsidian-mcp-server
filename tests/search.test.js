@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -408,5 +408,110 @@ ${Array.from({ length: 4 }, (_, i) => `## Section ${n} ${i}\n\n${'alpha '.repeat
       ranking: { ...DEFAULT_RANKING, perNoteCap: 2 },
     });
     expect(Math.max(...counts(capped))).toBeLessThanOrEqual(2);
+  });
+});
+
+run('transaction error handling', () => {
+  let root;
+  let service;
+  const collection = `test-tx-${process.pid}-${Date.now()}`;
+
+  /**
+   * Hand the next pool.connect() back with `query` stubbed so statements
+   * matching `failOn` reject with `original` and ROLLBACK rejects too, as when
+   * the connection dies mid-transaction. `release` is spied either way.
+   */
+  const wrapNextClient = (failOn, original) => {
+    const pool = service.store['pool'];
+    const connect = pool.connect.bind(pool);
+    const holder = {};
+    vi.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+      const client = await connect();
+      if (failOn) {
+        const query = client.query.bind(client);
+        client.query = (text, ...rest) => {
+          if (typeof text === 'string' && failOn(text)) return Promise.reject(original);
+          if (text === 'ROLLBACK') return Promise.reject(new Error('rollback failed'));
+          return query(text, ...rest);
+        };
+      }
+      holder.release = vi.spyOn(client, 'release');
+      return client;
+    });
+    return holder;
+  };
+
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'vault-tx-'));
+    await fs.mkdir(path.join(root, 'Areas'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, 'Areas/ubuntubox.md'),
+      '# ubuntubox\n\nRequiresMountsFor=/dsm in a systemd drop-in.\n'
+    );
+    service = await SearchService.create(
+      {
+        databaseUrl: DB,
+        collection,
+        embedder: { provider: 'fake', dim: 64, model: 'fake' },
+        intervalSeconds: 60,
+      },
+      root
+    );
+    const stats = await scanOnce({
+      vaultPath: root,
+      store: service.store,
+      embedder: service.embedder,
+    });
+    expect(stats.changed).toBe(1);
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  afterAll(async () => {
+    if (service) {
+      await service.store.truncateCollection();
+      await service.close();
+    }
+    if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('search rethrows the original error and destroys the client when ROLLBACK fails', async () => {
+    const original = new Error('details query failed');
+    const spy = wrapNextClient(text => text.includes('c.heading_path'), original);
+    const [vector] = await service.embedder.embed(['RequiresMountsFor']);
+    await expect(service.store.search(vector, 'RequiresMountsFor')).rejects.toBe(original);
+    expect(spy.release).toHaveBeenCalledTimes(1);
+    expect(spy.release.mock.calls[0][0]).toBeInstanceOf(Error);
+    expect(spy.release.mock.calls[0][0].message).toBe('rollback failed');
+    // The pool still serves searches afterwards.
+    expect(await service.store.search(vector, 'RequiresMountsFor')).not.toHaveLength(0);
+  });
+
+  it('search releases the client with no argument on success', async () => {
+    const spy = wrapNextClient(null);
+    const [vector] = await service.embedder.embed(['RequiresMountsFor']);
+    expect(await service.store.search(vector, 'RequiresMountsFor')).not.toHaveLength(0);
+    expect(spy.release.mock.calls).toEqual([[]]);
+  });
+
+  it('upsertDocument rethrows the original error and destroys the client when ROLLBACK fails', async () => {
+    const original = new Error('commit failed');
+    const spy = wrapNextClient(text => text === 'COMMIT', original);
+    const [embedding] = await service.embedder.embed(['tx probe']);
+    await expect(
+      service.store.upsertDocument({
+        path: 'Inbox/tx-probe.md',
+        title: 'tx probe',
+        frontmatter: null,
+        tags: [],
+        contentSha256: 'tx-probe',
+        mtime: new Date(),
+        size: 8,
+        chunks: [{ ord: 0, headingPath: '', content: 'tx probe', tokens: 2 }],
+        embeddings: [embedding],
+        links: [],
+      })
+    ).rejects.toBe(original);
+    expect(spy.release.mock.calls[0][0]).toBeInstanceOf(Error);
   });
 });

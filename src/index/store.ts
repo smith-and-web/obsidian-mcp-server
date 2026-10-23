@@ -253,6 +253,7 @@ export class IndexStore {
     for (let i = 0; i < dim; i++) centroid[i] /= input.embeddings.length || 1;
 
     const client = await this.pool.connect();
+    let releaseErr: Error | undefined;
     try {
       await client.query('BEGIN');
       const doc = await client.query<{ id: number }>(
@@ -345,10 +346,16 @@ export class IndexStore {
       await client.query('COMMIT');
       return id;
     } catch (err) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        releaseErr = rollbackErr as Error;
+      }
       throw err;
     } finally {
-      client.release();
+      // A failed ROLLBACK means the connection is suspect; destroy it rather than pool it.
+      if (releaseErr) client.release(releaseErr);
+      else client.release();
     }
   }
 
@@ -520,6 +527,7 @@ export class IndexStore {
         rank: Number(r.rn),
         score: Number(r.score),
       }));
+    let releaseErr: Error | undefined;
     try {
       await client.query('BEGIN');
       await client.query('SET LOCAL hnsw.iterative_scan = strict_order');
@@ -590,10 +598,16 @@ export class IndexStore {
       await client.query('COMMIT');
       return results;
     } catch (err) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        releaseErr = rollbackErr as Error;
+      }
       throw err;
     } finally {
-      client.release();
+      // A failed ROLLBACK means the connection is suspect; destroy it rather than pool it.
+      if (releaseErr) client.release(releaseErr);
+      else client.release();
     }
   }
 

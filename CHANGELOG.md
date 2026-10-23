@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-10-23
+
+### Fixed
+- `search()` and `upsertDocument()` rethrow the original error when `ROLLBACK` also fails, instead of masking it with the `ROLLBACK` error.
+- A client whose `ROLLBACK` failed is destroyed rather than returned to the pool, so a dead connection cannot fail later queries.
+
 ## [1.9.0] - 2026-10-22
 
 ### Added
