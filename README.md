@@ -350,7 +350,7 @@ obsidian-mcp-server/
 
 ## Learn log
 
-The optional measurement layer requires semantic search and is off by default. It records the three search tools (`semantic-search`, `similar-notes`, `search-vault`), successful reads (`read-note`, `read-multiple-notes`, `read-section`), explicit feedback and SSE session connect/close with client names. Search ranking is unchanged; search never reads these logs.
+The optional measurement layer requires semantic search and is off by default. It records the three search tools (`semantic-search`, `similar-notes`, `search-vault`), successful reads (`read-note`, `read-multiple-notes`, `read-section`), explicit feedback and session start/close with client names. Sessions are the legacy SSE stream (`GET /sse` + `/message`) and, since 1.10.1, `POST /sse` clients: `initialize` returns an `Mcp-Session-Id` header, later requests that echo it are logged under that session, and `DELETE /sse` with the header closes it. `POST /sse` requests without the header are logged with client name `post` and no session. Search ranking is unchanged; search never reads these logs.
 
 Set `LEARN_LOG=true` and `LEARN_REDACT_PATTERNS_FILE` to a readable UTF-8 file. Blank lines and comments are ignored, whitespace is trimmed, and each other line is a JavaScript regex source compiled case-insensitively. An example file is:
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { IndexStore } from '../index/store.js';
+import type { IndexStore, SessionTransport } from '../index/store.js';
 import type { LearnConfig } from './config.js';
 import { isSensitive } from './redact.js';
 
@@ -158,14 +158,26 @@ export class LearnLog {
     return { recorded: true };
   }
 
-  sessionStarted(sessionId: string, client: { name?: string; version?: string } | undefined): void {
+  sessionStarted(
+    sessionId: string,
+    client: { name?: string; version?: string } | undefined,
+    transport: SessionTransport = 'sse'
+  ): void {
     this.track(
       this.store.upsertSession({
         sessionId,
+        transport,
         clientName: client?.name ?? null,
         clientVersion: client?.version ?? null,
-      })
+      }),
+      sessionId
     );
+  }
+
+  /** Client name of a recorded session; undefined when unknown. Waits for its pending upsert. */
+  async sessionClient(sessionId: string): Promise<string | null | undefined> {
+    await this.pending.get(sessionId);
+    return this.store.sessionClient(sessionId);
   }
 
   sessionClosed(sessionId: string): void {

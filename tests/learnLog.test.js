@@ -109,10 +109,34 @@ describe('LearnLog', () => {
     await log.flush();
     expect(store.upsertSession).toHaveBeenCalledWith({
       sessionId: 'session',
+      transport: 'sse',
       clientName: 'client',
       clientVersion: '1',
     });
     expect(store.closeSession).toHaveBeenCalledWith('session');
+  });
+  it('records POST sessions and waits for the upsert before looking a session up', async () => {
+    const d = deferred(),
+      order = [];
+    store.upsertSession.mockImplementation(async () => {
+      await d.promise;
+      order.push('upsert');
+    });
+    store.sessionClient = vi.fn(async () => {
+      order.push('lookup');
+      return 'client';
+    });
+    log.sessionStarted('post-session', { name: 'client' }, 'post');
+    const lookup = log.sessionClient('post-session');
+    d.resolve();
+    expect(await lookup).toBe('client');
+    expect(order).toEqual(['upsert', 'lookup']);
+    expect(store.upsertSession).toHaveBeenCalledWith({
+      sessionId: 'post-session',
+      transport: 'post',
+      clientName: 'client',
+      clientVersion: null,
+    });
   });
   it.each([{}, { requestId: 'bad' }, { requestId: null }])(
     'rejects unknown ids without querying',

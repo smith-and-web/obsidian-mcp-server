@@ -1,4 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fileURLToPath } from 'url';
+import { VaultManager } from '../src/vault/VaultManager.js';
 import { createMCPServer } from '../src/server/mcp.js';
 import { toolDefinitions } from '../src/tools/index.js';
 
@@ -7,16 +9,27 @@ import { toolDefinitions } from '../src/tools/index.js';
  */
 function makeRes() {
   const res = {
+    headers: {},
     json: vi.fn(payload => {
       res.body = payload;
       return res;
     }),
+    setHeader: vi.fn((name, value) => {
+      res.headers[name.toLowerCase()] = value;
+      return res;
+    }),
+    status: vi.fn(code => {
+      res.statusCode = code;
+      return res;
+    }),
+    end: vi.fn(() => res),
   };
   return res;
 }
 
-function makeReq(body) {
-  return { body, query: {} };
+function makeReq(body, headers = {}) {
+  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
+  return { body, query: {}, get: name => lower[name.toLowerCase()] };
 }
 
 describe('createMCPServer handlePostRequest', () => {
@@ -131,4 +144,123 @@ describe('learn tool definitions', () => {
       expect(schema.required).not.toContain('requestId');
     }
   );
+});
+
+describe('POST /sse sessions (Mcp-Session-Id)', () => {
+  const vault = new VaultManager(fileURLToPath(new URL('../examples/test-vault', import.meta.url)));
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  let learn, handlers;
+  const initialize = async (clientInfo = { name: 'test-client', version: '2' }) => {
+    const res = makeRes();
+    await handlers.handlePostRequest(
+      makeReq({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo } }),
+      res
+    );
+    return res;
+  };
+  const readNote = (headers = {}) =>
+    handlers.handlePostRequest(
+      makeReq(
+        {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'read-note', arguments: { path: 'Welcome.md' } },
+        },
+        headers
+      ),
+      makeRes()
+    );
+  beforeEach(() => {
+    learn = {
+      sessionStarted: vi.fn(),
+      sessionClosed: vi.fn(),
+      sessionClient: vi.fn(async () => undefined),
+      logReads: vi.fn(),
+    };
+    handlers = createMCPServer(vault, null, undefined, learn);
+  });
+
+  it('returns a new session id in the Mcp-Session-Id header on initialize and records it', async () => {
+    const res = await initialize();
+    const sessionId = res.headers['mcp-session-id'];
+    expect(sessionId).toMatch(uuid);
+    expect((await initialize()).headers['mcp-session-id']).not.toBe(sessionId);
+    expect(learn.sessionStarted).toHaveBeenCalledWith(
+      sessionId,
+      { name: 'test-client', version: '2' },
+      'post'
+    );
+    expect(res.body.result.serverInfo.name).toBe('obsidian-mcp');
+  });
+
+  it('issues a header but records no session for the mcp-remote connection test', async () => {
+    const res = await initialize({ name: 'mcp-remote-fallback-test', version: '0.0.0' });
+    expect(res.headers['mcp-session-id']).toMatch(uuid);
+    expect(learn.sessionStarted).not.toHaveBeenCalled();
+  });
+
+  it('logs later calls carrying the header with that session id and client name', async () => {
+    const sessionId = (await initialize()).headers['mcp-session-id'];
+    await readNote({ 'Mcp-Session-Id': sessionId });
+    expect(learn.logReads).toHaveBeenCalledWith(
+      { sessionId, clientName: 'test-client' },
+      'read-note',
+      ['Welcome.md'],
+      null
+    );
+    expect(learn.sessionClient).not.toHaveBeenCalled();
+  });
+
+  it('looks up a session it has not seen in this process, once', async () => {
+    learn.sessionClient.mockResolvedValue('restarted-client');
+    await readNote({ 'mcp-session-id': 'from-before-restart' });
+    await readNote({ 'mcp-session-id': 'from-before-restart' });
+    expect(learn.sessionClient).toHaveBeenCalledTimes(1);
+    expect(learn.logReads).toHaveBeenLastCalledWith(
+      { sessionId: 'from-before-restart', clientName: 'restarted-client' },
+      'read-note',
+      ['Welcome.md'],
+      null
+    );
+  });
+
+  it('keeps the stateless client name for an unknown session or a failed lookup', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await readNote({ 'mcp-session-id': 'unknown' });
+    learn.sessionClient.mockRejectedValue(new Error('database down'));
+    await readNote({ 'mcp-session-id': 'lookup-fails' });
+    expect(learn.logReads.mock.calls.map(c => c[0])).toEqual([
+      { sessionId: 'unknown', clientName: 'post' },
+      { sessionId: 'lookup-fails', clientName: 'post' },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it('logs a call without the header exactly as before', async () => {
+    await initialize();
+    await readNote();
+    expect(learn.logReads).toHaveBeenCalledWith(
+      { sessionId: null, clientName: 'post' },
+      'read-note',
+      ['Welcome.md'],
+      null
+    );
+  });
+
+  it('closes the session on DELETE and answers 204', async () => {
+    const sessionId = (await initialize()).headers['mcp-session-id'];
+    const res = makeRes();
+    await handlers.handleSessionDelete(makeReq(undefined, { 'Mcp-Session-Id': sessionId }), res);
+    expect(learn.sessionClosed).toHaveBeenCalledWith(sessionId);
+    expect(res.statusCode).toBe(204);
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  it('rejects DELETE without the header', async () => {
+    const res = makeRes();
+    await handlers.handleSessionDelete(makeReq(undefined), res);
+    expect(res.statusCode).toBe(400);
+    expect(learn.sessionClosed).not.toHaveBeenCalled();
+  });
 });

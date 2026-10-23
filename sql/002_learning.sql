@@ -3,13 +3,27 @@
 CREATE TABLE IF NOT EXISTS mcp_sessions (
   session_id      text PRIMARY KEY,
   collection      text NOT NULL,
-  transport       text NOT NULL CHECK (transport IN ('sse')),
+  transport       text NOT NULL CHECK (transport IN ('sse', 'post')),
   connected_at    timestamptz NOT NULL DEFAULT now(),
   closed_at       timestamptz,
   client_name     text,
   client_version  text
 );
 CREATE INDEX IF NOT EXISTS mcp_sessions_connected ON mcp_sessions (collection, connected_at);
+-- 1.10.1: POST /sse sessions (Mcp-Session-Id). Tables created by 1.10.0 allow only 'sse';
+-- replace the constraint by name, once, so restarts take no lock.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'mcp_sessions'::regclass AND conname = 'mcp_sessions_transport_check'
+      AND pg_get_constraintdef(oid) LIKE '%''post''%'
+  ) THEN
+    ALTER TABLE mcp_sessions DROP CONSTRAINT IF EXISTS mcp_sessions_transport_check;
+    ALTER TABLE mcp_sessions ADD CONSTRAINT mcp_sessions_transport_check
+      CHECK (transport IN ('sse', 'post'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS search_log (
   id              uuid PRIMARY KEY,

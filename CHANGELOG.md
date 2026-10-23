@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-10-23
+
+### Fixed
+- Learn-log sessions for `POST /sse` clients (Streamable HTTP, including mcp-remote). `initialize` now returns an `Mcp-Session-Id` header and records the session with `transport = 'post'` and the client's name; later requests that send the header are logged with that session id and client name, looked up from the database after a restart. Before this, every `POST /sse` search and read was logged with no session and client name `post`, so session-based report metrics were empty.
+- `DELETE /sse` with an `Mcp-Session-Id` header closes the session and answers `204`.
+
+### Changed
+- `sql/002_learning.sql` allows `transport IN ('sse', 'post')` and replaces the 1.10.0 constraint on existing databases once, by name.
+- mcp-remote's connection test (`mcp-remote-fallback-test`) gets a session header but no session row.
+- `POST /sse` requests without the header and the legacy `GET /sse` + `/message` path are unchanged.
+
 ## [1.10.0] - 2026-10-23
 
 ### Added

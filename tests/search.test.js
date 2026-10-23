@@ -623,13 +623,45 @@ run('learn log end to end', () => {
   });
   it('sets session close once and updates client metadata on upsert', async () => {
     const id = `${collection}-session`;
-    await service.store.upsertSession({ sessionId: id, clientName: null, clientVersion: null });
-    await service.store.upsertSession({ sessionId: id, clientName: 'test', clientVersion: '1' });
+    await service.store.upsertSession({ sessionId: id, transport: 'sse', clientName: null, clientVersion: null });
+    await service.store.upsertSession({ sessionId: id, transport: 'sse', clientName: 'test', clientVersion: '1' });
     await service.store.closeSession(id);
     const row = (await query('SELECT * FROM mcp_sessions WHERE session_id=$1', [id])).rows[0];
     expect(row.closed_at).toBeInstanceOf(Date); expect(row.client_name).toBe('test');
     await service.store.closeSession(id);
     expect((await query('SELECT closed_at FROM mcp_sessions WHERE session_id=$1', [id])).rows[0].closed_at).toEqual(row.closed_at);
+  });
+  it('widens a v1.10.0 transport constraint to allow post, idempotently', async () => {
+    await query('ALTER TABLE mcp_sessions DROP CONSTRAINT mcp_sessions_transport_check');
+    await query("ALTER TABLE mcp_sessions ADD CONSTRAINT mcp_sessions_transport_check CHECK (transport IN ('sse')) NOT VALID");
+    await expect(service.store.upsertSession({ sessionId: `${collection}-old`, transport: 'post', clientName: null, clientVersion: null })).rejects.toThrow(/mcp_sessions_transport_check/);
+    await service.store.ensureSchema('fake', 64);
+    await service.store.ensureSchema('fake', 64);
+    await service.store.upsertSession({ sessionId: `${collection}-old`, transport: 'post', clientName: null, clientVersion: null });
+    await expect(query("INSERT INTO mcp_sessions (session_id, collection, transport) VALUES ($1, $2, 'other')", [`${collection}-bad`, collection])).rejects.toThrow(/mcp_sessions_transport_check/);
+    const r = await query("SELECT count(*) FROM pg_constraint WHERE conrelid = 'mcp_sessions'::regclass AND contype = 'c'");
+    expect(Number(r.rows[0].count)).toBe(1);
+  });
+  it('records a POST /sse session from initialize through tool calls to DELETE', async () => {
+    const { createMCPServer } = await import('../src/server/mcp.js');
+    const req = (body, headers = {}) => ({ body, query: {}, get: name => headers[name.toLowerCase()] });
+    const res = () => { const r = { headers: {} }; r.json = b => ((r.body = b), r); r.setHeader = (k, v) => ((r.headers[k.toLowerCase()] = v), r); r.status = c => ((r.statusCode = c), r); r.end = () => r; return r; };
+    const call = (handlers, headers) => handlers.handlePostRequest(req({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'semantic-search', arguments: { query: 'alpha' } } }, headers), res());
+    const first = createMCPServer(vault, service, undefined, service.learn);
+    const init = res();
+    await first.handlePostRequest(req({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: { name: 'post-client', version: '3' } } }), init);
+    const sessionId = init.headers['mcp-session-id'];
+    expect((await query('SELECT transport, client_name, client_version FROM mcp_sessions WHERE session_id=$1', [sessionId])).rows[0]).toEqual({ transport: 'post', client_name: 'post-client', client_version: '3' });
+    // A second server instance stands in for a restart: it finds the session in the database.
+    const restarted = createMCPServer(vault, service, undefined, service.learn);
+    for (const handlers of [first, restarted]) await call(handlers, { 'mcp-session-id': sessionId });
+    await call(first, {});
+    const rows = (await query('SELECT session_id, client_name FROM search_log WHERE collection=$1 ORDER BY at DESC LIMIT 3', [collection])).rows;
+    expect(rows).toEqual([{ session_id: null, client_name: 'post' }, { session_id: sessionId, client_name: 'post-client' }, { session_id: sessionId, client_name: 'post-client' }]);
+    const del = res();
+    await restarted.handleSessionDelete(req(undefined, { 'mcp-session-id': sessionId }), del);
+    expect(del.statusCode).toBe(204);
+    expect((await query('SELECT closed_at FROM mcp_sessions WHERE session_id=$1', [sessionId])).rows[0].closed_at).toBeInstanceOf(Date);
   });
   it('computes report rates from linked reads and feedback in an isolated collection', async () => {
     const { randomUUID } = await import('crypto');
