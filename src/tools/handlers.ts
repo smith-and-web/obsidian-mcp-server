@@ -5,6 +5,7 @@
 
 import type { VaultManager } from '../vault/VaultManager.js';
 import type { SearchService } from '../index/SearchService.js';
+import { NO_CONTEXT, type CallContext, type LearnLog } from '../learn/log.js';
 
 export interface ToolArguments {
   path?: string;
@@ -46,6 +47,11 @@ export interface ToolArguments {
   k?: number;
   type?: string;
   status?: string;
+  requestId?: string;
+  rating?: string;
+  usedPaths?: string[];
+  expectedPaths?: string[];
+  note?: string;
 }
 
 /**
@@ -55,16 +61,31 @@ export async function executeToolCall(
   name: string,
   args: ToolArguments,
   vaultManager: VaultManager,
-  search?: SearchService | null
+  search?: SearchService | null,
+  ctx: CallContext = NO_CONTEXT,
+  learn: LearnLog | null = null
 ): Promise<unknown> {
   switch (name) {
     // Note Operations
-    case 'read-note':
-      return vaultManager.readNote(args.path!, { frontmatterOnly: args.frontmatterOnly });
-    case 'read-multiple-notes':
-      return vaultManager.readMultipleNotes(args.paths as string[], {
+    case 'read-note': {
+      const result = await vaultManager.readNote(args.path!, {
         frontmatterOnly: args.frontmatterOnly,
       });
+      learn?.logReads(ctx, name, [args.path!], args.requestId ?? null);
+      return result;
+    }
+    case 'read-multiple-notes': {
+      const result = await vaultManager.readMultipleNotes(args.paths as string[], {
+        frontmatterOnly: args.frontmatterOnly,
+      });
+      learn?.logReads(
+        ctx,
+        name,
+        result.results.map(r => r.path),
+        args.requestId ?? null
+      );
+      return result;
+    }
     case 'create-note':
       return vaultManager.createNote(args.path!, args.content!);
     case 'edit-note':
@@ -122,8 +143,8 @@ export async function executeToolCall(
       return vaultManager.auditTags(args.directory!, args.requiredTags!);
 
     // Search Operations
-    case 'search-vault':
-      return vaultManager.searchVault(args.query!, {
+    case 'search-vault': {
+      const result = await vaultManager.searchVault(args.query!, {
         directory: args.directory,
         searchContent: args.searchContent,
         searchFilenames: args.searchFilenames,
@@ -132,6 +153,26 @@ export async function executeToolCall(
         includeContext: args.includeContext,
         contextLines: args.contextLines,
       });
+      if (!learn || !args.query!.trim()) return result;
+      const id = learn.newRequestId();
+      learn.logSearch({
+        id,
+        ctx,
+        tool: name,
+        query: args.query!.trim(),
+        embedding: null,
+        params: {
+          directory: args.directory,
+          searchContent: args.searchContent,
+          searchFilenames: args.searchFilenames,
+          caseSensitive: args.caseSensitive,
+          maxResults: args.maxResults,
+        },
+        ranker: 'text-scan',
+        results: result.results.map((r, i) => ({ path: r.path, rank: i + 1 })),
+      });
+      return { ...result, requestId: id };
+    }
 
     // Link Operations
     case 'get-backlinks':
@@ -148,8 +189,11 @@ export async function executeToolCall(
       return vaultManager.replaceSection(args.path!, args.heading!, args.content!);
     case 'insert-at-marker':
       return vaultManager.insertAtMarker(args.path!, args.marker!, args.content!, args.position);
-    case 'read-section':
-      return vaultManager.readSection(args.path!, args.heading!);
+    case 'read-section': {
+      const result = await vaultManager.readSection(args.path!, args.heading!);
+      learn?.logReads(ctx, name, [args.path!], args.requestId ?? null);
+      return result;
+    }
     case 'list-headings':
       return vaultManager.listHeadings(args.path!, args.level ?? null);
 
@@ -165,16 +209,23 @@ export async function executeToolCall(
 
     // Semantic Search (optional)
     case 'semantic-search':
-      return requireSearch(search, name).semanticSearch(args.query!, {
-        k: args.k,
-        mode: args.mode as 'hybrid' | 'vector' | 'text' | undefined,
-        directory: args.directory,
-        tags: args.tags,
-        type: args.type,
-        status: args.status,
-      });
+      return requireSearch(search, name).semanticSearch(
+        args.query!,
+        {
+          k: args.k,
+          mode: args.mode as 'hybrid' | 'vector' | 'text' | undefined,
+          directory: args.directory,
+          tags: args.tags,
+          type: args.type,
+          status: args.status,
+        },
+        ctx
+      );
     case 'similar-notes':
-      return requireSearch(search, name).similarNotes(args.path!, args.k);
+      return requireSearch(search, name).similarNotes(args.path!, args.k, ctx);
+    case 'search-feedback':
+      if (!learn) throw new Error('search-feedback requires LEARN_LOG=true and semantic search');
+      return learn.recordFeedback(args);
     case 'index-status':
       return requireSearch(search, name).indexStatus();
     case 'reindex-note':

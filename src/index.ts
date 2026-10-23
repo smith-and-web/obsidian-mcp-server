@@ -13,6 +13,7 @@ import { readInstructions } from './server/instructions.js';
 import { corsMiddleware, authMiddleware } from './server/middleware.js';
 import { readIndexConfig } from './index/config.js';
 import { SearchService } from './index/SearchService.js';
+import { readLearnConfig } from './learn/config.js';
 
 // Configuration
 const PORT = process.env.PORT || 3000;
@@ -49,11 +50,21 @@ if (indexConfig) {
   }
 }
 
+const learnConfig = indexConfig?.learn ?? readLearnConfig(process.env);
+console.log(
+  learnConfig.error
+    ? `Learn log: disabled (${learnConfig.error})`
+    : search?.learn
+      ? `Learn log: enabled (retention ${learnConfig.retentionDays} days, ${learnConfig.patterns.length} patterns)`
+      : 'Learn log: disabled'
+);
+
 // Initialize MCP handlers
 const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(
   vaultManager,
   search,
-  INSTRUCTIONS
+  INSTRUCTIONS,
+  search?.learn ?? null
 );
 
 // Health check endpoint (public - no auth required)

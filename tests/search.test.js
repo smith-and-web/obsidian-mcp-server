@@ -515,3 +515,149 @@ run('transaction error handling', () => {
     expect(spy.release.mock.calls[0][0]).toBeInstanceOf(Error);
   });
 });
+
+run('learn log end to end', () => {
+  let root, service, vault, off, reportStore;
+  const collection = `test-learn-${process.pid}-${Date.now()}`;
+  const config = { databaseUrl: DB, collection, embedder: { provider: 'fake', dim: 64, model: 'fake' },
+    intervalSeconds: 60, ranking: DEFAULT_RANKING };
+  let call, buildReport;
+  const flush = async () => { await service.learn.flush(); };
+  const query = async (sql, values = []) => { await flush(); return service.store['pool'].query(sql, values); };
+  const counts = async () => {
+    const r = await query(`SELECT
+      (SELECT count(*) FROM search_log WHERE collection=$1) AS searches,
+      (SELECT count(*) FROM note_reads WHERE collection=$1) AS reads,
+      (SELECT count(*) FROM search_feedback f JOIN search_log s ON f.search_id=s.id WHERE s.collection=$1) AS feedback,
+      (SELECT count(*) FROM mcp_sessions WHERE collection=$1) AS sessions`, [collection]);
+    return r.rows[0];
+  };
+  beforeAll(async () => {
+    const { BUILTIN_PATTERNS } = await import('../src/learn/redact.js');
+    const { VaultManager } = await import('../src/vault/VaultManager.js');
+    ({ executeToolCall: call } = await import('../src/tools/handlers.js'));
+    ({ buildReport } = await import('../src/learn/report.js'));
+    config.learn = { enabled: true, retentionDays: 30, error: null, patterns: [...BUILTIN_PATTERNS, /zzredactme/i] };
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-vault-'));
+    await fs.mkdir(path.join(root, 'notes'));
+    await fs.writeFile(path.join(root, 'notes/alpha.md'), '---\ntitle: Alpha\ntype: reference\n---\n# Alpha\n\n## One\n\nalpha apples\n\n## Two\n\nalpha pears');
+    await fs.writeFile(path.join(root, 'notes/beta.md'), '---\ntitle: Beta\ntype: reference\n---\n# Beta\n\nbeta bananas');
+    service = await SearchService.create(config, root);
+    vault = new VaultManager(root);
+    await scanOnce({ vaultPath: root, store: service.store, embedder: service.embedder });
+  });
+  afterAll(async () => {
+    if (service) {
+      await flush();
+      await query('DELETE FROM note_reads WHERE collection = ANY($1::text[])', [[collection, `${collection}-report`]]);
+      await query('DELETE FROM search_log WHERE collection = ANY($1::text[])', [[collection, `${collection}-report`]]);
+      await query('DELETE FROM mcp_sessions WHERE collection = ANY($1::text[])', [[collection, `${collection}-report`]]);
+      await service.store.truncateCollection();
+    }
+    await Promise.all([service?.close(), off?.close(), reportStore?.close()]);
+    if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+  const invoke = (name, args, target = service) => call(name, args, vault, target, { sessionId: null, clientName: 'test' }, target.learn);
+  const searchRow = async id => (await query('SELECT * FROM search_log WHERE id=$1', [id])).rows[0];
+  it('applies the four learning tables idempotently', async () => {
+    await service.store.ensureSchema('fake', 64);
+    await service.store.ensureSchema('fake', 64);
+    const r = await query("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('mcp_sessions','search_log','note_reads','search_feedback')");
+    expect(Number(r.rows[0].count)).toBe(4);
+  });
+  it('links search, normalised reads and feedback through tool calls; unknown ids become null', async () => {
+    const { randomUUID } = await import('crypto');
+    const result = await invoke('semantic-search', { query: 'alpha' });
+    expect(result.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    const row = await searchRow(result.requestId);
+    expect(row.ranker).toBe('rrf-k60-v1-t1-cap0');
+    expect(row.params).toEqual({});
+    expect(row.results).toContainEqual(expect.objectContaining({ path: 'notes/alpha.md', rank: 1 }));
+    await invoke('read-note', { path: 'notes/alpha.md', requestId: result.requestId });
+    await invoke('read-note', { path: '/notes/beta.md', requestId: result.requestId });
+    const reads = await query('SELECT path, request_id FROM note_reads WHERE request_id=$1 ORDER BY id', [result.requestId]);
+    expect(reads.rows).toEqual([{ path: 'notes/alpha.md', request_id: result.requestId }, { path: 'notes/beta.md', request_id: result.requestId }]);
+    expect(await invoke('search-feedback', { requestId: result.requestId, rating: 'positive', usedPaths: ['notes/alpha.md'] })).toEqual({ recorded: true });
+    const feedback = await query('SELECT * FROM search_feedback WHERE search_id=$1', [result.requestId]);
+    expect(feedback.rows).toHaveLength(1);
+    for (const requestId of [randomUUID(), 'not-a-uuid']) {
+      await invoke('read-note', { path: 'notes/beta.md', requestId });
+      const last = await query('SELECT request_id FROM note_reads WHERE collection=$1 ORDER BY id DESC LIMIT 1', [collection]);
+      expect(last.rows[0].request_id).toBeNull();
+    }
+  });
+  it('does not log when disabled or return requestId', async () => {
+    off = await SearchService.create({ ...config, learn: { ...config.learn, enabled: false } }, root);
+    const before = await counts();
+    expect(await invoke('semantic-search', { query: 'alpha' }, off)).not.toHaveProperty('requestId');
+    await invoke('read-note', { path: 'notes/alpha.md' }, off);
+    expect(await counts()).toEqual(before);
+  });
+  it('redacts query text, embedding, tags and directory before storage', async () => {
+    const result = await invoke('semantic-search', { query: 'alpha zzredactme', directory: 'zzredactme', tags: ['zzredactme'], k: 2 });
+    expect(await searchRow(result.requestId)).toMatchObject({ query: null, query_embedding: null, redacted: true,
+      params: { directory: '[redacted]', tags: ['[redacted]'], k: 2 } });
+  });
+  it('logs similar-notes, text searches, section and batch reads without changing their results', async () => {
+    const similar = await invoke('similar-notes', { path: 'notes/alpha.md' });
+    expect(await searchRow(similar.requestId)).toMatchObject({ query: 'notes/alpha.md', ranker: 'centroid', params: {} });
+    const text = await invoke('search-vault', { query: 'alpha', maxResults: 3 });
+    expect(await searchRow(text.requestId)).toMatchObject({ ranker: 'text-scan', params: { maxResults: 3 } });
+    await invoke('read-section', { path: 'notes/alpha.md', heading: '## One', requestId: text.requestId });
+    await invoke('read-multiple-notes', { paths: ['notes/alpha.md', 'notes/missing.md'], requestId: text.requestId });
+    const reads = await query('SELECT tool, path FROM note_reads WHERE request_id=$1 ORDER BY id', [text.requestId]);
+    expect(reads.rows).toEqual([{ tool: 'read-section', path: 'notes/alpha.md' }, { tool: 'read-multiple-notes', path: 'notes/alpha.md' }]);
+    expect(await invoke('semantic-search', { query: ' ' })).not.toHaveProperty('requestId');
+  });
+  it('clears old query text, embeddings and feedback notes while keeping fresh rows', async () => {
+    const old = await invoke('semantic-search', { query: 'alpha' });
+    await invoke('search-feedback', { requestId: old.requestId, rating: 'neutral', note: 'old reason' });
+    await query("UPDATE search_log SET at=now()-interval '200 days' WHERE id=$1", [old.requestId]);
+    await query("UPDATE search_feedback SET at=now()-interval '200 days' WHERE search_id=$1", [old.requestId]);
+    const fresh = await invoke('semantic-search', { query: 'beta' }); await flush();
+    const retained = await service.store.applyRetention(30);
+    expect(retained.queries).toBeGreaterThanOrEqual(1); expect(retained.notes).toBeGreaterThanOrEqual(1);
+    expect(await searchRow(old.requestId)).toMatchObject({ query: null, query_embedding: null });
+    expect((await query('SELECT note FROM search_feedback WHERE search_id=$1', [old.requestId])).rows[0].note).toBeNull();
+    expect((await searchRow(fresh.requestId)).query).toBe('beta');
+  });
+  it('sets session close once and updates client metadata on upsert', async () => {
+    const id = `${collection}-session`;
+    await service.store.upsertSession({ sessionId: id, clientName: null, clientVersion: null });
+    await service.store.upsertSession({ sessionId: id, clientName: 'test', clientVersion: '1' });
+    await service.store.closeSession(id);
+    const row = (await query('SELECT * FROM mcp_sessions WHERE session_id=$1', [id])).rows[0];
+    expect(row.closed_at).toBeInstanceOf(Date); expect(row.client_name).toBe('test');
+    await service.store.closeSession(id);
+    expect((await query('SELECT closed_at FROM mcp_sessions WHERE session_id=$1', [id])).rows[0].closed_at).toEqual(row.closed_at);
+  });
+  it('computes report rates from linked reads and feedback in an isolated collection', async () => {
+    const { randomUUID } = await import('crypto');
+    reportStore = new IndexStore({ connectionString: DB, collection: `${collection}-report`, readOnly: false });
+    const a = randomUUID(), b = randomUUID();
+    for (const [id, results] of [[a, [{ path: 'notes/x.md', ord: 0, rank: 1 }, { path: 'notes/y.md', ord: 0, rank: 2 }]], [b, [{ path: 'notes/x.md', ord: 0, rank: 1 }]]]) {
+      await reportStore.insertSearchLog({ id, sessionId: null, clientName: 'test', tool: 'semantic-search', query: 'alpha', redacted: false, embedding: null, params: {}, ranker: 'test', results });
+    }
+    await reportStore.insertNoteReads(['notes/y.md', 'notes/z.md'].map(path => ({ sessionId: null, clientName: 'test', tool: 'read-note', path, requestId: a })));
+    await reportStore.insertFeedback({ searchId: a, source: 'agent', rating: 'positive', usedPaths: [], expectedPaths: [], note: null, redacted: false });
+    await flush();
+    const report = await buildReport(reportStore, 30, 'test');
+    expect(report.links).toMatchObject({ usedAt1: 0, usedAt3: 0.5, usedAt8: 0.5, missRate: 0.5, linkedSearchRate: 0.5 });
+    expect(report.feedback.coverage).toBe(0.5); expect(report.searches.byTool['semantic-search']).toBe(2);
+    expect(report.volumeGate).toBe('fail');
+    // Cross-collection read ids do not link, and feedback lookups are collection scoped.
+    await service.store.insertNoteReads([{ sessionId: null, clientName: 'test', tool: 'read-note', path: 'notes/alpha.md', requestId: a }]);
+    expect(await service.store.searchLogExists(a)).toBe(false);
+    expect((await query('SELECT request_id FROM note_reads WHERE collection=$1 ORDER BY id DESC LIMIT 1', [collection])).rows[0].request_id).toBeNull();
+  });
+  it('drops query_embedding on reset and recreates it with the next dimension', async () => {
+    await flush(); await service.store.resetSchema();
+    const missing = await query("SELECT 1 FROM information_schema.columns WHERE table_name='search_log' AND column_name='query_embedding'");
+    expect(missing.rows).toHaveLength(0);
+    await service.store.ensureSchema('fake', 32);
+    const restored = await query("SELECT format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid='search_log'::regclass AND attname='query_embedding' AND NOT attisdropped");
+    expect(restored.rows[0].type).toBe('vector(32)');
+    // Restore the shared test schema for subsequent test files.
+    await service.store.resetSchema(); await service.store.ensureSchema('fake', 64);
+  });
+});

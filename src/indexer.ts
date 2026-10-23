@@ -119,6 +119,19 @@ async function main(): Promise<void> {
 
   while (!stopping) {
     await runPass();
+    if (config.learn.enabled) {
+      try {
+        const key = `learn_retention_at:${config.collection}`;
+        const meta = await store.getMeta();
+        if (!meta[key] || Date.now() - Date.parse(meta[key]) > 24 * 60 * 60 * 1000) {
+          const { queries, notes } = await store.applyRetention(config.learn.retentionDays);
+          await store.setMeta(key, new Date().toISOString());
+          log(`learn retention: cleared ${queries} queries, ${notes} notes`);
+        }
+      } catch (err) {
+        log(`learn retention failed: ${(err as Error).message}`);
+      }
+    }
     for (let i = 0; i < config.intervalSeconds && !stopping; i++) {
       await new Promise(resolve => setTimeout(resolve, 1000));
     }

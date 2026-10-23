@@ -109,3 +109,26 @@ describe('createMCPServer handlePostRequest', () => {
     expect(res.body.error.code).toBe(-32000);
   });
 });
+
+describe('learn tool definitions', () => {
+  it('advertises feedback only when semantic search and logging are enabled', async () => {
+    const { getToolDefinitions } = await import('../src/tools/definitions.js');
+    expect(
+      getToolDefinitions({ semantic: true, learn: false }).some(t => t.name === 'search-feedback')
+    ).toBe(false);
+    expect(
+      getToolDefinitions({ semantic: true, learn: true }).some(t => t.name === 'search-feedback')
+    ).toBe(true);
+    expect(
+      getToolDefinitions({ semantic: false, learn: true }).some(t => t.name === 'search-feedback')
+    ).toBe(false);
+  });
+  it.each(['read-note', 'read-multiple-notes', 'read-section'])(
+    '%s accepts an optional requestId',
+    name => {
+      const schema = toolDefinitions.find(t => t.name === name).inputSchema;
+      expect(schema.properties.requestId.type).toBe('string');
+      expect(schema.required).not.toContain('requestId');
+    }
+  );
+});
