@@ -4,13 +4,17 @@ import type { IndexStore } from '../index/store.js';
 import type { MaintainConfig } from './config.js';
 import { CLASSES } from './classes.js';
 import { readReportDecisions } from './decisions.js';
+import { vaultMentionVerifier } from './mentions.js';
 import { isoWeek, renderReport, type MaintenanceMetrics } from './report.js';
 
-/** Runs the seven checks in their report order. No learn data or ranking settings are read. */
+/**
+ * Runs the seven checks in their report order. No learn data or ranking settings are read; the
+ * vault is read only to confirm that a mention is in a note's prose.
+ */
 async function checks(store: IndexStore, c: MaintainConfig) {
   return [
     await store.findMissingLinks(c.linkCosine),
-    await store.findUnlinkedMentions(),
+    await store.findUnlinkedMentions(vaultMentionVerifier(c.vaultPath)),
     await store.findLinkRepairs(),
     await store.findMissingFrontmatter(),
     await store.findStaleSummaries(c.summaryDrop),

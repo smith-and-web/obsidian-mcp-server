@@ -162,6 +162,10 @@ function eligible(alias: string): string {
 function aliases(alias: string): string {
   return `CASE WHEN jsonb_typeof(${alias}.frontmatter->'aliases')='array' THEN ${alias}.frontmatter->'aliases' ELSE '[]'::jsonb END`;
 }
+/** Journal notes are a historical record: they neither get nor give link suggestions. */
+function outsideJournal(alias: string): string {
+  return `${alias}.path NOT LIKE 'Journal/%'`;
+}
 function unlinked(a: string, b: string): string {
   return `NOT EXISTS (SELECT 1 FROM links l WHERE (l.src_document_id=${a}.id AND l.target_document_id=${b}.id)
     OR (l.src_document_id=${b}.id AND l.target_document_id=${a}.id))`;
@@ -310,6 +314,7 @@ export class IndexStore {
       jsonb_build_object('cosine', round((1-(a.centroid <=> b.centroid))::numeric,4)) AS detail
       FROM documents a JOIN documents b ON a.id < b.id AND b.collection = a.collection
       WHERE a.collection = $1 AND ${eligible('a')} AND ${eligible('b')}
+        AND ${outsideJournal('a')} AND ${outsideJournal('b')}
         AND 1-(a.centroid <=> b.centroid) > $2 AND ${unlinked('a', 'b')}
       ORDER BY 1-(a.centroid <=> b.centroid) DESC, a.path, b.path`,
       [this.collection, minCosine]
@@ -317,28 +322,44 @@ export class IndexStore {
     return this.candidates('link-related', result.rows);
   }
 
-  async findUnlinkedMentions(): Promise<Candidate[]> {
+  /**
+   * Notes whose prose names another note (its title or an alias) without linking to it. The
+   * full-text index narrows the pairs; `mentionedName` then checks the source's prose, which
+   * the chunks cannot give exactly (they repeat the title in every breadcrumb), and returns the
+   * first of the names, longest first, that it really contains.
+   */
+  async findUnlinkedMentions(
+    mentionedName: (source: string, names: string[]) => Promise<string | null>
+  ): Promise<Candidate[]> {
     const result = await this.pool.query(
       `WITH names AS (
       SELECT d.id, d.title AS name FROM documents d WHERE d.collection=$1
       UNION SELECT d.id, a.value #>> '{}' FROM documents d,
         LATERAL jsonb_array_elements(${aliases('d')}) a(value)
         WHERE d.collection=$1 AND jsonb_typeof(a.value)='string'
-    ), hits AS (
-      SELECT DISTINCT ON (src.id, dst.id) src.path AS source, dst.path AS target, n.name,
+    ) SELECT src.path AS source, dst.path AS target,
+        array_agg(n.name ORDER BY length(n.name) DESC, n.name) AS names,
         coalesce(1-(src.centroid <=> dst.centroid),0) AS cosine
       FROM names n JOIN documents dst ON dst.id=n.id
       JOIN documents src ON src.collection=dst.collection AND src.id<>dst.id
       WHERE dst.collection=$1 AND ${eligible('dst')} AND length(n.name)>=4
+        AND ${outsideJournal('src')} AND ${outsideJournal('dst')}
         AND EXISTS (SELECT 1 FROM chunks c WHERE c.document_id=src.id AND c.ord>0
           AND c.tsv @@ phraseto_tsquery('english',n.name)) AND ${unlinked('src', 'dst')}
-      ORDER BY src.id,dst.id,length(n.name) DESC,n.name
-    ) SELECT ARRAY[source,target] AS paths,
-      jsonb_build_object('name',name,'cosine',round(cosine::numeric,4)) AS detail
-      FROM hits ORDER BY cosine DESC,source,target`,
+      GROUP BY src.id, dst.id
+      ORDER BY cosine DESC, source, target`,
       [this.collection]
     );
-    return this.candidates('link-mention', result.rows);
+    const rows = [];
+    for (const row of result.rows) {
+      const name = await mentionedName(row.source, row.names);
+      if (name)
+        rows.push({
+          paths: [row.source, row.target],
+          detail: { name, cosine: Number(Number(row.cosine).toFixed(4)) },
+        });
+    }
+    return this.candidates('link-mention', rows);
   }
 
   async findLinkRepairs(): Promise<Candidate[]> {
@@ -405,6 +426,8 @@ export class IndexStore {
       FROM documents a JOIN documents b ON a.id<b.id AND b.collection=a.collection
       WHERE a.collection=$1 AND ${eligible('a')} AND ${eligible('b')}
         AND (1-(a.centroid <=> b.centroid)>$2 OR similarity(lower(a.title),lower(b.title))>$3)
+        AND ${unlinked('a', 'b')}
+        AND NOT (a.frontmatter->>'type' = 'plan' AND b.frontmatter->>'type' = 'plan')
       ORDER BY greatest(1-(a.centroid <=> b.centroid),similarity(lower(a.title),lower(b.title))) DESC,a.path,b.path`,
       [this.collection, minCosine, minTitleSim]
     );

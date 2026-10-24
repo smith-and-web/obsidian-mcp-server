@@ -10,6 +10,7 @@ import { runMaintenance } from '../src/maintain/run.js';
 import { readMaintainConfig } from '../src/maintain/config.js';
 import { IndexStore } from '../src/index/store.js';
 import { scanOnce } from '../src/index/scanner.js';
+import { vaultMentionVerifier } from '../src/maintain/mentions.js';
 
 const DB = process.env.TEST_DATABASE_URL;
 const run = DB ? describe : describe.skip;
@@ -135,7 +136,7 @@ run('maintenance against pgvector', () => {
     const store = service.store;
     const checks = [
       await store.findMissingLinks(0.5),
-      await store.findUnlinkedMentions(),
+      await store.findUnlinkedMentions(vaultMentionVerifier(root)),
       await store.findLinkRepairs(),
       await store.findMissingFrontmatter(),
       await store.findNearDuplicates(0.5, 0.6),
@@ -205,7 +206,9 @@ run('maintenance against pgvector', () => {
       `UPDATE documents SET frontmatter=frontmatter || '{"aliases":"scalar","updated":"bad-date"}'::jsonb WHERE collection=$1 AND path=$2`,
       [collection, 'notes/bare.md']
     );
-    await expect(service.store.findUnlinkedMentions()).resolves.toBeInstanceOf(Array);
+    await expect(
+      service.store.findUnlinkedMentions(vaultMentionVerifier(root))
+    ).resolves.toBeInstanceOf(Array);
     await expect(service.store.findLinkRepairs()).resolves.toBeInstanceOf(Array);
     await expect(service.store.findStaleHubs(14)).resolves.toBeInstanceOf(Array);
     await pool.query(
