@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-10-24
+
+### Fixed
+- Maintenance `merge-duplicate` no longer proposes a pair where either note links to the other (a hub and its child notes) or where both notes are `type: plan`. Similarity thresholds are unchanged.
+- Maintenance `link-mention` checks the source note's prose only: frontmatter, the first H1, fenced and inline code, wikilinks, embeds and markdown links are excluded, and the target's title or alias must appear as a whole word, case-insensitively, with hyphens counted as word characters (so `kindling` does not match `kindling-splash`). The worker reads the note from `VAULT_PATH`; the chunk index still narrows candidates.
+- Notes under `Journal/` get no `link-mention` or `link-related` findings, as source or target.
+
+### Changed
+- The `nearDuplicatePairs` and `missingLinkPairs` hygiene metrics use the same filters, so they can drop from 1.11.0 values without any vault change.
+
 ## [1.11.0] - 2026-10-23
 
 ### Added
