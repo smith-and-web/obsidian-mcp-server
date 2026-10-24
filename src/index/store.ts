@@ -125,6 +125,48 @@ function normalizeDirectory(directory: string | undefined): string | null {
   return clean ? `${clean}/` : null;
 }
 
+export interface RecommendInput {
+  positive: string[];
+  negative: string[];
+  k: number;
+  strategy: 'best_score' | 'average_vector';
+  type?: string;
+  directory?: string;
+}
+
+export interface Candidate {
+  key: string;
+  paths: string[];
+  detail: Record<string, unknown>;
+}
+export interface FindingRow {
+  id: number;
+  class: string;
+  paths: string[];
+  detail: Record<string, unknown>;
+  status: string;
+  decidedVia: string | null;
+  decidedAt: Date | null;
+}
+export interface Hygiene {
+  documents: number;
+  unresolvedLinks: number;
+  orphans: number;
+  invalidFrontmatter: number;
+  nearDuplicatePairs: number;
+  missingLinkPairs: number;
+}
+function eligible(alias: string): string {
+  return `coalesce(${alias}.frontmatter->>'type','') NOT IN ('journal','inbox')`;
+}
+function aliases(alias: string): string {
+  return `CASE WHEN jsonb_typeof(${alias}.frontmatter->'aliases')='array' THEN ${alias}.frontmatter->'aliases' ELSE '[]'::jsonb END`;
+}
+function unlinked(a: string, b: string): string {
+  return `NOT EXISTS (SELECT 1 FROM links l WHERE (l.src_document_id=${a}.id AND l.target_document_id=${b}.id)
+    OR (l.src_document_id=${b}.id AND l.target_document_id=${a}.id))`;
+}
+
 export class IndexStore {
   private pool: pg.Pool;
   readonly collection: string;
@@ -165,6 +207,9 @@ export class IndexStore {
     try {
       await client.query(ddl);
       await client.query(learningDdl);
+      await client.query(
+        await fs.readFile(path.resolve(here, '..', '..', 'sql', '003_maintenance.sql'), 'utf-8')
+      );
       const existing = await client.query<{ key: string; value: string }>(
         'SELECT key, value FROM meta WHERE key IN ($1, $2, $3)',
         ['embed_model', 'dim', 'schema_version']
@@ -209,8 +254,439 @@ export class IndexStore {
   async resetSchema(): Promise<void> {
     await this.pool.query('ALTER TABLE IF EXISTS search_log DROP COLUMN IF EXISTS query_embedding');
     await this.pool.query(
-      'DROP TABLE IF EXISTS links, chunks, documents, index_runs, meta CASCADE'
+      'DROP TABLE IF EXISTS doc_history, links, chunks, documents, index_runs, meta CASCADE'
     );
+  }
+
+  async ensureMaintenanceSchema(): Promise<void> {
+    const exists = await this.pool.query("SELECT to_regclass('documents') AS table_name");
+    if (!exists.rows[0].table_name) throw new Error('index not built: run the indexer first');
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    await this.pool.query(
+      await fs.readFile(path.resolve(here, '..', '..', 'sql', '003_maintenance.sql'), 'utf-8')
+    );
+  }
+
+  async recordDocHistory(client: pg.PoolClient, documentId: number): Promise<void> {
+    await client.query(
+      `INSERT INTO doc_history (document_id, content_sha256, summary, summary_body_cosine)
+      SELECT d.id, d.content_sha256, d.frontmatter->>'summary',
+        (SELECT 1 - (c0.embedding <=> b.v)
+         FROM chunks c0, (SELECT avg(embedding) AS v FROM chunks WHERE document_id = d.id AND ord > 0) b
+         WHERE c0.document_id = d.id AND c0.ord = 0 AND b.v IS NOT NULL)
+      FROM documents d WHERE d.id = $1 AND d.collection = $2`,
+      [documentId, this.collection]
+    );
+  }
+
+  async backfillDocHistory(): Promise<number> {
+    const result = await this.pool.query(
+      `INSERT INTO doc_history (document_id, content_sha256, summary, summary_body_cosine)
+      SELECT d.id, d.content_sha256, d.frontmatter->>'summary',
+        (SELECT 1 - (c0.embedding <=> b.v)
+         FROM chunks c0, (SELECT avg(embedding) AS v FROM chunks WHERE document_id = d.id AND ord > 0) b
+         WHERE c0.document_id = d.id AND c0.ord = 0 AND b.v IS NOT NULL)
+      FROM documents d WHERE d.collection = $1 AND NOT EXISTS (SELECT 1 FROM doc_history h WHERE h.document_id = d.id)`,
+      [this.collection]
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private candidates(
+    cls: string,
+    rows: { paths: string[]; detail: Record<string, unknown> }[]
+  ): Candidate[] {
+    return rows.map(row => {
+      const paths = ['link-related', 'merge-duplicate'].includes(cls)
+        ? [...row.paths].sort()
+        : row.paths;
+      return { key: `${cls}:${paths.join('|')}`, paths, detail: row.detail };
+    });
+  }
+
+  async findMissingLinks(minCosine: number): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `SELECT ARRAY[a.path,b.path] AS paths,
+      jsonb_build_object('cosine', round((1-(a.centroid <=> b.centroid))::numeric,4)) AS detail
+      FROM documents a JOIN documents b ON a.id < b.id AND b.collection = a.collection
+      WHERE a.collection = $1 AND ${eligible('a')} AND ${eligible('b')}
+        AND 1-(a.centroid <=> b.centroid) > $2 AND ${unlinked('a', 'b')}
+      ORDER BY 1-(a.centroid <=> b.centroid) DESC, a.path, b.path`,
+      [this.collection, minCosine]
+    );
+    return this.candidates('link-related', result.rows);
+  }
+
+  async findUnlinkedMentions(): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `WITH names AS (
+      SELECT d.id, d.title AS name FROM documents d WHERE d.collection=$1
+      UNION SELECT d.id, a.value #>> '{}' FROM documents d,
+        LATERAL jsonb_array_elements(${aliases('d')}) a(value)
+        WHERE d.collection=$1 AND jsonb_typeof(a.value)='string'
+    ), hits AS (
+      SELECT DISTINCT ON (src.id, dst.id) src.path AS source, dst.path AS target, n.name,
+        coalesce(1-(src.centroid <=> dst.centroid),0) AS cosine
+      FROM names n JOIN documents dst ON dst.id=n.id
+      JOIN documents src ON src.collection=dst.collection AND src.id<>dst.id
+      WHERE dst.collection=$1 AND ${eligible('dst')} AND length(n.name)>=4
+        AND EXISTS (SELECT 1 FROM chunks c WHERE c.document_id=src.id AND c.ord>0
+          AND c.tsv @@ phraseto_tsquery('english',n.name)) AND ${unlinked('src', 'dst')}
+      ORDER BY src.id,dst.id,length(n.name) DESC,n.name
+    ) SELECT ARRAY[source,target] AS paths,
+      jsonb_build_object('name',name,'cosine',round(cosine::numeric,4)) AS detail
+      FROM hits ORDER BY cosine DESC,source,target`,
+      [this.collection]
+    );
+    return this.candidates('link-mention', result.rows);
+  }
+
+  async findLinkRepairs(): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `WITH matches AS (
+      SELECT src.path AS source,l.target_path,dst.path AS target,dst.frontmatter,
+        count(*) OVER (PARTITION BY src.id,l.target_path) AS matches
+      FROM links l JOIN documents src ON src.id=l.src_document_id
+      JOIN documents dst ON dst.collection=src.collection AND (
+        lower(dst.title)=lower(regexp_replace(regexp_replace(l.target_path,'^.*/',''),'\\.md$','','i'))
+        OR EXISTS (SELECT 1 FROM jsonb_array_elements(${aliases('dst')}) a(value)
+          WHERE jsonb_typeof(a.value)='string' AND lower(a.value #>> '{}')=
+            lower(regexp_replace(regexp_replace(l.target_path,'^.*/',''),'\\.md$','','i'))))
+      WHERE src.collection=$1 AND l.target_document_id IS NULL
+    ) SELECT DISTINCT ARRAY[source,target] AS paths,jsonb_build_object('target',target_path) AS detail
+      FROM matches WHERE matches=1 AND coalesce(frontmatter->>'type','') NOT IN ('journal','inbox')
+      ORDER BY paths`,
+      [this.collection]
+    );
+    return this.candidates('link-repair', result.rows);
+  }
+
+  async findMissingFrontmatter(): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `SELECT ARRAY[d.path] AS paths,
+      jsonb_build_object('fields',ARRAY(SELECT f FROM unnest(ARRAY['aliases','index']) f
+        WHERE NOT (d.frontmatter ? f) ORDER BY f)) AS detail
+      FROM documents d WHERE d.collection=$1 AND ${eligible('d')}
+        AND (NOT (d.frontmatter ? 'index') OR NOT (d.frontmatter ? 'aliases')) ORDER BY d.path`,
+      [this.collection]
+    );
+    return this.candidates('fm-missing', result.rows);
+  }
+
+  async findStaleSummaries(minDrop: number): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `WITH history AS (
+      SELECT d.path,h.*,row_number() OVER w AS rn,first_value(h.summary) OVER w AS current_summary
+      FROM documents d JOIN doc_history h ON h.document_id=d.id
+      WHERE d.collection=$1 AND ${eligible('d')}
+      WINDOW w AS (PARTITION BY d.id ORDER BY h.at DESC,h.id DESC)
+    ), bounds AS (
+      SELECT document_id, min(rn) FILTER (WHERE summary IS DISTINCT FROM current_summary) AS stop
+      FROM history GROUP BY document_id
+    ), current_run AS (
+      SELECT h.* FROM history h JOIN bounds b USING(document_id) WHERE b.stop IS NULL OR h.rn<b.stop
+    ), bases AS (
+      SELECT DISTINCT ON (document_id) * FROM current_run ORDER BY document_id,rn DESC
+    ) SELECT ARRAY[c.path] AS paths,
+      jsonb_build_object('baseCosine',b.summary_body_cosine,'currentCosine',c.summary_body_cosine,'summarySince',b.at) AS detail
+      FROM current_run c JOIN bases b USING(document_id) WHERE c.rn=1 AND b.rn>=2
+        AND c.summary_body_cosine < b.summary_body_cosine-$2
+      ORDER BY b.summary_body_cosine-c.summary_body_cosine DESC,c.path`,
+      [this.collection, minDrop]
+    );
+    return this.candidates('summary-refresh', result.rows);
+  }
+
+  async findNearDuplicates(minCosine: number, minTitleSim: number): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `SELECT ARRAY[a.path,b.path] AS paths,
+      jsonb_build_object('cosine',round((1-(a.centroid <=> b.centroid))::numeric,4),
+        'titleSimilarity',round(similarity(lower(a.title),lower(b.title))::numeric,4)) AS detail
+      FROM documents a JOIN documents b ON a.id<b.id AND b.collection=a.collection
+      WHERE a.collection=$1 AND ${eligible('a')} AND ${eligible('b')}
+        AND (1-(a.centroid <=> b.centroid)>$2 OR similarity(lower(a.title),lower(b.title))>$3)
+      ORDER BY greatest(1-(a.centroid <=> b.centroid),similarity(lower(a.title),lower(b.title))) DESC,a.path,b.path`,
+      [this.collection, minCosine, minTitleSim]
+    );
+    return this.candidates('merge-duplicate', result.rows);
+  }
+
+  async findStaleHubs(days: number): Promise<Candidate[]> {
+    const result = await this.pool.query(
+      `WITH dated AS (
+      SELECT d.*, CASE WHEN d.frontmatter->>'updated' ~ '^\\d{4}-\\d{2}-\\d{2}'
+        AND pg_input_is_valid(d.frontmatter->>'updated','timestamp with time zone')
+        THEN (d.frontmatter->>'updated')::timestamptz END AS updated
+      FROM documents d WHERE d.collection=$1
+    ), hubs AS (
+      SELECT DISTINCT ON (h.id) h.path,h.updated,n.path AS newest,n.updated AS newest_updated
+      FROM dated h JOIN dated n ON h.id<>n.id AND ${eligible('n')}
+        AND EXISTS (SELECT 1 FROM links l WHERE (l.src_document_id=h.id AND l.target_document_id=n.id)
+          OR (l.src_document_id=n.id AND l.target_document_id=h.id))
+      WHERE h.frontmatter->>'type' IN ('project','area') AND h.updated IS NOT NULL AND n.updated IS NOT NULL
+      ORDER BY h.id,n.updated DESC,n.path
+    ) SELECT ARRAY[path] AS paths,jsonb_build_object('hubUpdated',updated,'newestLinked',newest,
+      'newestUpdated',newest_updated,'days',floor(extract(epoch FROM newest_updated-updated)/86400)) AS detail
+      FROM hubs WHERE newest_updated>updated+make_interval(days=>$2)
+      ORDER BY newest_updated-updated DESC,path`,
+      [this.collection, days]
+    );
+    return this.candidates('hub-review', result.rows);
+  }
+
+  async hygieneMetrics(): Promise<Hygiene> {
+    const result = await this.pool.query(
+      `SELECT count(*)::int AS documents,
+      count(*) FILTER (WHERE d.frontmatter_error IS NOT NULL)::int AS "invalidFrontmatter",
+      count(*) FILTER (WHERE ${eligible('d')} AND NOT EXISTS (SELECT 1 FROM links l
+        WHERE l.target_document_id=d.id AND l.src_document_id<>d.id))::int AS orphans,
+      (SELECT count(*)::int FROM links l JOIN documents src ON src.id=l.src_document_id
+        WHERE src.collection=$1 AND l.target_document_id IS NULL) AS "unresolvedLinks"
+      FROM documents d WHERE d.collection=$1`,
+      [this.collection]
+    );
+    return {
+      ...result.rows[0],
+      nearDuplicatePairs: (await this.findNearDuplicates(0.92, 0.6)).length,
+      missingLinkPairs: (await this.findMissingLinks(0.85)).length,
+    };
+  }
+
+  private maintenanceClient: pg.PoolClient | null = null;
+
+  async maintenanceLock(): Promise<boolean> {
+    if (this.maintenanceClient) return false;
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query(
+        "SELECT pg_try_advisory_lock(hashtext('brain-maintain:' || $1)) AS locked",
+        [this.collection]
+      );
+      if (result.rows[0].locked) {
+        this.maintenanceClient = client;
+        return true;
+      }
+      client.release();
+      return false;
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+  }
+
+  async maintenanceUnlock(): Promise<void> {
+    const client = this.maintenanceClient;
+    if (!client) return;
+    this.maintenanceClient = null;
+    try {
+      await client.query("SELECT pg_advisory_unlock(hashtext('brain-maintain:' || $1))", [
+        this.collection,
+      ]);
+      client.release();
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+  }
+
+  async startMaintenanceRun(): Promise<number> {
+    const result = await this.pool.query(
+      'INSERT INTO maintenance_runs(collection) VALUES($1) RETURNING id',
+      [this.collection]
+    );
+    return Number(result.rows[0].id);
+  }
+
+  async finishMaintenanceRun(
+    id: number,
+    r: {
+      reportId: string | null;
+      reportPath: string | null;
+      metrics: Record<string, unknown>;
+      error: string | null;
+    }
+  ): Promise<void> {
+    await this.pool.query(
+      `UPDATE maintenance_runs SET finished_at=now(),report_id=$2,report_path=$3,
+      metrics=$4::jsonb,error_text=$5 WHERE id=$1 AND collection=$6`,
+      [id, r.reportId, r.reportPath, JSON.stringify(r.metrics), r.error, this.collection]
+    );
+  }
+
+  async previousRun(
+    beforeRunId: number
+  ): Promise<{ startedAt: Date; metrics: Record<string, unknown> } | null> {
+    const result = await this.pool.query(
+      `SELECT started_at AS "startedAt",metrics FROM maintenance_runs
+      WHERE collection=$1 AND id<$2 AND finished_at IS NOT NULL AND error_text IS NULL ORDER BY id DESC LIMIT 1`,
+      [this.collection, beforeRunId]
+    );
+    return result.rows[0] ?? null;
+  }
+
+  async upsertChangeClasses(classes: { class: string; graduable: boolean }[]): Promise<void> {
+    for (const c of classes)
+      await this.pool.query(
+        `INSERT INTO change_classes(collection,class,graduable) VALUES($1,$2,$3)
+      ON CONFLICT(collection,class) DO UPDATE SET graduable=EXCLUDED.graduable`,
+        [this.collection, c.class, c.graduable]
+      );
+  }
+
+  async refreshClassCounts(): Promise<void> {
+    await this.pool.query(
+      `UPDATE change_classes c SET decided=s.decided,accepted=s.accepted,updated_at=now()
+      FROM (SELECT c.class,count(f.id) FILTER (WHERE f.status IN ('accepted','rejected'))::int AS decided,
+        count(f.id) FILTER (WHERE f.status='accepted')::int AS accepted
+        FROM change_classes c LEFT JOIN maintenance_findings f ON f.class=c.class AND f.collection=c.collection
+        WHERE c.collection=$1 GROUP BY c.class) s WHERE c.collection=$1 AND c.class=s.class`,
+      [this.collection]
+    );
+  }
+
+  async upsertFindings(
+    runId: number,
+    reportId: string,
+    cls: string,
+    candidates: Candidate[],
+    maxNew: number
+  ): Promise<{ inserted: number; updated: number }> {
+    let inserted = 0,
+      updated = 0;
+    for (const c of candidates) {
+      const existing = await this.pool.query(
+        'SELECT id FROM maintenance_findings WHERE collection=$1 AND finding_key=$2',
+        [this.collection, c.key]
+      );
+      if (existing.rowCount) {
+        const result = await this.pool.query(
+          `UPDATE maintenance_findings SET status='open',detail=$3::jsonb,paths=$4::text[],
+          last_seen_run=$5,last_reported_in=$6 WHERE collection=$1 AND finding_key=$2 AND status IN ('open','resolved')`,
+          [this.collection, c.key, JSON.stringify(c.detail), c.paths, runId, reportId]
+        );
+        updated += result.rowCount ?? 0;
+      } else if (inserted < maxNew) {
+        const result = await this.pool.query(
+          `INSERT INTO maintenance_findings(collection,class,finding_key,paths,detail,
+          first_reported_in,last_reported_in,last_seen_run) VALUES($1,$2,$3,$4::text[],$5::jsonb,$6,$6,$7)
+          ON CONFLICT(collection,finding_key) DO NOTHING`,
+          [this.collection, cls, c.key, c.paths, JSON.stringify(c.detail), reportId, runId]
+        );
+        inserted += result.rowCount ?? 0;
+      }
+    }
+    return { inserted, updated };
+  }
+
+  async resolveUnseenFindings(runId: number, classes: string[]): Promise<number> {
+    const result = await this.pool.query(
+      `UPDATE maintenance_findings SET status='resolved' WHERE collection=$1
+      AND status='open' AND class=ANY($2::text[]) AND last_seen_run IS DISTINCT FROM $3`,
+      [this.collection, classes, runId]
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private findingColumns =
+    'id,class,paths,detail,status,decided_via AS "decidedVia",decided_at AS "decidedAt"';
+  private findingRows(rows: FindingRow[]): FindingRow[] {
+    return rows.map(r => ({ ...r, id: Number(r.id) }));
+  }
+
+  async openFindings(limit: number): Promise<FindingRow[]> {
+    const result = await this.pool.query(
+      `SELECT ${this.findingColumns} FROM maintenance_findings WHERE collection=$1 AND status='open'
+      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review'],class),id LIMIT $2`,
+      [this.collection, limit]
+    );
+    return this.findingRows(result.rows);
+  }
+
+  async findingsDecidedSince(at: Date): Promise<FindingRow[]> {
+    const result = await this.pool.query(
+      `SELECT ${this.findingColumns} FROM maintenance_findings WHERE collection=$1
+      AND status IN ('accepted','rejected') AND decided_at>=$2 ORDER BY decided_at,id`,
+      [this.collection, at]
+    );
+    return this.findingRows(result.rows);
+  }
+
+  async decideFinding(
+    id: number,
+    decision: 'accepted' | 'rejected',
+    via: 'checkbox' | 'tool',
+    note: string | null,
+    onlyIfOpen: boolean
+  ): Promise<FindingRow | null> {
+    const result = await this.pool.query(
+      `UPDATE maintenance_findings SET status=$2,decided_via=$3,decided_at=now(),decision_note=$4
+      WHERE id=$1 AND collection=$5 ${onlyIfOpen ? "AND status='open'" : ''} RETURNING ${this.findingColumns}`,
+      [id, decision, via, note, this.collection]
+    );
+    return this.findingRows(result.rows)[0] ?? null;
+  }
+
+  async maintenanceFindingCounts(): Promise<{
+    findings: Record<string, number>;
+    openClasses: number;
+  }> {
+    const result = await this.pool.query(
+      `SELECT status,count(*)::int AS n,count(DISTINCT class)::int AS classes
+      FROM maintenance_findings WHERE collection=$1 GROUP BY status`,
+      [this.collection]
+    );
+    const findings: Record<string, number> = { open: 0, accepted: 0, rejected: 0, resolved: 0 };
+    let openClasses = 0;
+    for (const r of result.rows) {
+      findings[r.status] = r.n;
+      if (r.status === 'open') openClasses = r.classes;
+    }
+    return { findings, openClasses };
+  }
+
+  async maintenanceClassCounts(): Promise<{ class: string; decided: number; accepted: number }[]> {
+    const result = await this.pool.query(
+      `SELECT class,decided,accepted FROM change_classes WHERE collection=$1
+      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review'],class)`,
+      [this.collection]
+    );
+    return result.rows;
+  }
+
+  async missingPaths(paths: string[]): Promise<string[]> {
+    const result = await this.pool.query(
+      'SELECT path FROM documents WHERE collection=$1 AND path=ANY($2::text[])',
+      [this.collection, paths]
+    );
+    const known = new Set(result.rows.map(r => r.path));
+    return paths.filter(p => !known.has(p));
+  }
+
+  async recommendNotes(
+    input: RecommendInput
+  ): Promise<{ path: string; title: string; score: number }[]> {
+    const params: unknown[] = [this.collection, input.positive, input.negative, input.k];
+    const filter = this.filterSql(input, params);
+    const cte = `WITH p AS (SELECT centroid FROM documents WHERE collection=$1 AND path=ANY($2::text[])),
+      n AS (SELECT centroid FROM documents WHERE collection=$1 AND path=ANY($3::text[]))`;
+    let sql: string;
+    if (input.strategy === 'average_vector') {
+      sql = `${cte},q AS (SELECT coalesce((SELECT avg(centroid) FROM p)+(SELECT avg(centroid) FROM p)-(SELECT avg(centroid) FROM n),
+        (SELECT avg(centroid) FROM p)) AS v)
+        SELECT d.path,d.title,1-(d.centroid <=> q.v) AS score FROM documents d,q
+        WHERE d.collection=$1 AND d.centroid IS NOT NULL AND q.v IS NOT NULL AND NOT(d.path=ANY($2::text[] || $3::text[])) ${filter}
+        ORDER BY score DESC,d.path LIMIT $4`;
+    } else {
+      sql = `${cte},scores AS (SELECT d.path,d.title,
+        (SELECT max(1-(d.centroid <=> p.centroid)) FROM p) AS best_pos,
+        (SELECT max(1-(d.centroid <=> n.centroid)) FROM n) AS best_neg
+        FROM documents d WHERE d.collection=$1 AND d.centroid IS NOT NULL
+          AND NOT(d.path=ANY($2::text[] || $3::text[])) ${filter})
+        SELECT path,title,CASE WHEN best_pos>coalesce(best_neg,-1) THEN best_pos ELSE -best_neg END AS score
+        FROM scores ORDER BY score DESC NULLS LAST,path LIMIT $4`;
+    }
+    const result = await this.pool.query(sql, params);
+    return result.rows.map(r => ({ ...r, score: Number(Number(r.score).toFixed(4)) }));
   }
 
   async getMeta(): Promise<Record<string, string>> {
@@ -564,6 +1040,7 @@ export class IndexStore {
           ]
         );
       }
+      await this.recordDocHistory(client, id);
       await client.query('DELETE FROM links WHERE src_document_id = $1', [id]);
       for (const target of input.links) {
         // Resolve the way Obsidian does for "shortest path" links: an exact

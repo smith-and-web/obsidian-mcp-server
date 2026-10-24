@@ -52,6 +52,8 @@ src/
 │   ├── store.ts            # All SQL: schema, upserts, hybrid search
 │   ├── scanner.ts          # Vault walk, change detection, one reconcile pass
 │   └── SearchService.ts    # What the tools call
+├── maintain/               # Maintenance configuration, decisions, reports and worker
+├── maintain.ts             # Report-only maintenance CLI
 ├── learn/                  # Learn log, redaction, configuration and report assembly
 ├── learn-report.ts         # Read-only learn-report CLI entrypoint
 ├── eval/                   # Golden schema, metrics and ranking grid
@@ -62,6 +64,7 @@ src/
 
 sql/001_schema.sql           # Index DDL; __DIM__ substituted at start
 sql/002_learning.sql         # Learn log DDL; applied even when logging is disabled
+sql/003_maintenance.sql      # Additive maintenance schema; history and decisions
 tests/                       # Vitest specs (*.test.js) — mirror the src module under test
 examples/test-vault/         # Sample vault used by examples and manual testing
 ```
