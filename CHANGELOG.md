@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] - 2026-10-23
+
+### Fixed
+- Legacy SSE streams (`GET /sse`) no longer go idle. The server writes an SSE comment (`: ping`) every `SSE_KEEPALIVE_SECONDS` (default 30; `0` disables). Claude Code dropped a stream that had carried no bytes for about six minutes and reconnected without sending `initialize` again, so later calls in a long session had no client name and no session row. Every SSE parser ignores comment lines, so clients need no change.
+
 ## [1.10.1] - 2026-10-23
 
 ### Fixed

@@ -43,8 +43,10 @@ export function createMCPServer(
   vaultManager: VaultManager,
   search: SearchService | null = null,
   instructions?: string,
-  learn: LearnLog | null = null
+  learn: LearnLog | null = null,
+  options: { keepaliveSeconds?: number } = {}
 ): MCPServerHandlers {
+  const keepaliveMs = (options.keepaliveSeconds ?? 0) * 1000;
   const toolDefinitions = getToolDefinitions({ semantic: search !== null, learn: learn !== null });
   // Track active SSE transports by sessionId so /message POSTs can be routed
   // back to the correct stream. Required by the standard MCP-over-SSE flow:
@@ -91,7 +93,9 @@ export function createMCPServer(
   async function handleSSEConnection(req: Request, res: Response): Promise<void> {
     const transport = new SSEServerTransport('/message', res);
     transports.set(transport.sessionId, transport);
+    let keepalive: NodeJS.Timeout | undefined;
     req.on('close', () => {
+      clearInterval(keepalive);
       transports.delete(transport.sessionId);
       learn?.sessionClosed(transport.sessionId);
       clientNames.delete(transport.sessionId);
@@ -156,6 +160,13 @@ export function createMCPServer(
       learn?.sessionStarted(transport.sessionId, v);
     };
     await server.connect(transport);
+    if (keepaliveMs > 0) {
+      // An SSE comment: ignored by every client parser, but it keeps the stream from looking idle.
+      keepalive = setInterval(() => {
+        if (!res.writableEnded) res.write(': ping\n\n');
+      }, keepaliveMs);
+      keepalive.unref();
+    }
     console.log(`MCP server connected via SSE (session: ${transport.sessionId})`);
   }
 
