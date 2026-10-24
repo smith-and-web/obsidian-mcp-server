@@ -22,6 +22,9 @@ const { Pool } = pg;
 
 export const SCHEMA_VERSION = '1';
 
+/** How an MCP session reached the server: the legacy SSE stream or POST /sse with Mcp-Session-Id. */
+export type SessionTransport = 'sse' | 'post';
+
 export interface DocumentRecord {
   id: number;
   path: string;
@@ -320,15 +323,25 @@ export class IndexStore {
 
   async upsertSession(row: {
     sessionId: string;
+    transport: SessionTransport;
     clientName: string | null;
     clientVersion: string | null;
   }): Promise<void> {
     await this.pool.query(
       `INSERT INTO mcp_sessions (session_id, collection, transport, client_name, client_version)
-       VALUES ($1, $2, 'sse', $3, $4)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (session_id) DO UPDATE SET client_name = EXCLUDED.client_name, client_version = EXCLUDED.client_version`,
-      [row.sessionId, this.collection, row.clientName, row.clientVersion]
+      [row.sessionId, this.collection, row.transport, row.clientName, row.clientVersion]
     );
+  }
+
+  /** The recorded session's client name: undefined when no such session, null when it sent none. */
+  async sessionClient(sessionId: string): Promise<string | null | undefined> {
+    const result = await this.pool.query<{ client_name: string | null }>(
+      'SELECT client_name FROM mcp_sessions WHERE session_id = $1 AND collection = $2',
+      [sessionId, this.collection]
+    );
+    return result.rows.length ? result.rows[0].client_name : undefined;
   }
 
   async closeSession(sessionId: string): Promise<void> {

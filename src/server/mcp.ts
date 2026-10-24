@@ -2,13 +2,14 @@
  * MCP Server setup and handlers
  */
 
+import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { getToolDefinitions, executeToolCall } from '../tools/index.js';
 import type { VaultManager } from '../vault/VaultManager.js';
 import type { SearchService } from '../index/SearchService.js';
-import type { LearnLog } from '../learn/log.js';
+import type { CallContext, LearnLog } from '../learn/log.js';
 import type { Request, Response } from 'express';
 
 interface MCPRequest {
@@ -17,13 +18,22 @@ interface MCPRequest {
   params?: {
     name: string;
     arguments: Record<string, unknown>;
+    clientInfo?: { name?: string; version?: string };
   };
 }
+
+/** Streamable HTTP session header: issued on initialize, echoed by the client afterwards. */
+const SESSION_HEADER = 'mcp-session-id';
+/** mcp-remote's throwaway connection test; it never makes a tool call. */
+const PROBE_CLIENT = 'mcp-remote-fallback-test';
+/** POST sessions are kept in memory up to this many; older ones fall back to the database. */
+const MAX_POST_SESSIONS = 1000;
 
 interface MCPServerHandlers {
   handleSSEConnection: (req: Request, res: Response) => Promise<void>;
   handleMessagePost: (req: Request, res: Response) => Promise<void>;
   handlePostRequest: (req: Request, res: Response) => Promise<Response | void>;
+  handleSessionDelete: (req: Request, res: Response) => Promise<void>;
 }
 
 /**
@@ -43,6 +53,37 @@ export function createMCPServer(
   // transport.handlePostMessage() so responses are streamed back over SSE.
   const transports = new Map<string, SSEServerTransport>();
   const clientNames = new Map<string, string | null>();
+  // POST /sse sessions: Mcp-Session-Id → client name, for the learn log's call context.
+  const postSessions = new Map<string, string | null>();
+
+  function rememberPostSession(sessionId: string, clientName: string | null): void {
+    postSessions.delete(sessionId);
+    postSessions.set(sessionId, clientName);
+    if (postSessions.size > MAX_POST_SESSIONS) {
+      postSessions.delete(postSessions.keys().next().value!);
+    }
+  }
+
+  /**
+   * Call context for a POST /sse request. Without an Mcp-Session-Id header it is the
+   * stateless context used before 1.10.1; with one, the session and its client name.
+   */
+  async function postContext(req: Request): Promise<CallContext> {
+    const sessionId = req.get(SESSION_HEADER);
+    if (!sessionId) return { sessionId: null, clientName: 'post' };
+    if (!postSessions.has(sessionId)) {
+      // Not seen since this process started: look it up, so sessions survive a restart.
+      // Unknown sessions (or a failed lookup) keep the stateless client name.
+      let recorded: string | null | undefined;
+      try {
+        recorded = learn ? await learn.sessionClient(sessionId) : undefined;
+      } catch (err) {
+        console.error('learn-log: ' + (err as Error).message);
+      }
+      rememberPostSession(sessionId, recorded === undefined ? 'post' : recorded);
+    }
+    return { sessionId, clientName: postSessions.get(sessionId) ?? null };
+  }
 
   /**
    * Handle SSE connection (GET /sse)
@@ -145,6 +186,13 @@ export function createMCPServer(
     const { method, id, params } = req.body as MCPRequest;
 
     if (method === 'initialize') {
+      const sessionId = randomUUID();
+      const clientInfo = params?.clientInfo;
+      if (clientInfo?.name !== PROBE_CLIENT) {
+        rememberPostSession(sessionId, clientInfo?.name ?? null);
+        learn?.sessionStarted(sessionId, clientInfo, 'post');
+      }
+      res.setHeader(SESSION_HEADER, sessionId);
       return res.json({
         jsonrpc: '2.0',
         id,
@@ -181,7 +229,7 @@ export function createMCPServer(
           args,
           vaultManager,
           search,
-          { sessionId: null, clientName: 'post' },
+          await postContext(req),
           learn
         );
         return res.json({
@@ -246,9 +294,24 @@ export function createMCPServer(
     });
   }
 
+  /**
+   * Handle DELETE /sse — the client ending a session it started with POST /sse initialize.
+   */
+  async function handleSessionDelete(req: Request, res: Response): Promise<void> {
+    const sessionId = req.get(SESSION_HEADER);
+    if (!sessionId) {
+      res.status(400).json({ error: 'Missing Mcp-Session-Id header' });
+      return;
+    }
+    postSessions.delete(sessionId);
+    learn?.sessionClosed(sessionId);
+    res.status(204).end();
+  }
+
   return {
     handleSSEConnection,
     handleMessagePost,
     handlePostRequest,
+    handleSessionDelete,
   };
 }

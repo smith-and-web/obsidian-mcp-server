@@ -60,12 +60,8 @@ console.log(
 );
 
 // Initialize MCP handlers
-const { handleSSEConnection, handleMessagePost, handlePostRequest } = createMCPServer(
-  vaultManager,
-  search,
-  INSTRUCTIONS,
-  search?.learn ?? null
-);
+const { handleSSEConnection, handleMessagePost, handlePostRequest, handleSessionDelete } =
+  createMCPServer(vaultManager, search, INSTRUCTIONS, search?.learn ?? null);
 
 // Health check endpoint (public - no auth required)
 app.get('/health', (_req, res) => {
@@ -91,6 +87,9 @@ app.post('/message', auth, handleMessagePost);
 
 // Direct POST endpoint for MCP protocol messages - protected
 app.post('/sse', auth, handlePostRequest);
+
+// Ends a POST /sse session (Mcp-Session-Id header) - protected
+app.delete('/sse', auth, handleSessionDelete);
 
 // Start server
 app.listen(PORT, () => {
