@@ -633,6 +633,7 @@ export function getToolDefinitions({
     ...toolDefinitions,
     ...semanticToolDefinitions,
     ...(learn ? [feedbackToolDefinition] : []),
+    ...maintenanceToolDefinitions,
   ];
 }
 
@@ -661,3 +662,49 @@ const feedbackToolDefinition: ToolDefinition = {
     required: ['requestId', 'rating'],
   },
 };
+
+const maintenanceToolDefinitions: ToolDefinition[] = [
+  {
+    name: 'recommend-notes',
+    description:
+      'Find notes like a set of example notes and unlike another set. Pass vault paths of notes that are good examples (positive) and optionally ones to steer away from (negative). Use it to decide where a new note or clipping belongs (positives: candidate hub notes) or to explore ("more like these, not like those").',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        positive: {
+          type: 'array',
+          items: { type: 'string' },
+          description: '1 to 10 vault paths to move towards',
+        },
+        negative: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Up to 10 vault paths to move away from',
+        },
+        k: { type: 'number', description: 'Number of notes to return (default: 10, max: 50)' },
+        strategy: {
+          type: 'string',
+          enum: ['best_score', 'average_vector'],
+          description: 'Default best_score',
+        },
+        type: { type: 'string', description: 'Only notes whose frontmatter type equals this' },
+        directory: { type: 'string', description: 'Limit to notes under this vault directory' },
+      },
+      required: ['positive'],
+    },
+  },
+  {
+    name: 'maintenance-decision',
+    description:
+      "Record Josh's decision on a brain maintenance finding (the f<id> items in the weekly maintenance report). Call it only when Josh has said to accept or reject that finding. Accepting changes no note.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        finding: { type: 'string', description: 'Finding id, e.g. "f17" or "17"' },
+        decision: { type: 'string', enum: ['accept', 'reject'] },
+        note: { type: 'string', description: 'Optional short reason' },
+      },
+      required: ['finding', 'decision'],
+    },
+  },
+];

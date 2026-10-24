@@ -31,6 +31,10 @@ export class LearnLog {
     private config: LearnConfig
   ) {}
 
+  get patterns(): RegExp[] {
+    return this.config.patterns;
+  }
+
   newRequestId(): string {
     return randomUUID();
   }

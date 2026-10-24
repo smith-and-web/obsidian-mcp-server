@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-10-23
+
+### Added
+- Report-only maintenance worker (`node dist/maintain.js`, or `npm run maintain`): seven deterministic checks, weekly draft reports with checkbox decisions, hygiene trends and acceptance counts per change class.
+- `doc_history` baselines and summary/body cosine history written transactionally by the indexer; additive `sql/003_maintenance.sql` schema.
+- `recommend-notes` with positive and negative examples and two strategies, and `maintenance-decision` for explicit decisions in chat. Both are available with semantic search, independently of learn logging.
+
+### Changed
+- Search ranking is unchanged. Maintenance writes only its own report file and never edits existing notes. Accepting a finding records the decision; changes are applied by hand.
+
 ## [1.10.2] - 2026-10-23
 
 ### Fixed

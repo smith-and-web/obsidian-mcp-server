@@ -264,3 +264,112 @@ describe('POST /sse sessions (Mcp-Session-Id)', () => {
     expect(learn.sessionClosed).not.toHaveBeenCalled();
   });
 });
+
+describe('maintenance tool surface', () => {
+  it('registers both tools with semantic search, independently of logging', async () => {
+    const { getToolDefinitions } = await import('../src/tools/definitions.js');
+    for (const learn of [false, true])
+      for (const semantic of [false, true]) {
+        const names = getToolDefinitions({ semantic, learn }).map(t => t.name);
+        for (const tool of ['recommend-notes', 'maintenance-decision'])
+          expect(names.includes(tool)).toBe(semantic);
+      }
+  });
+  it.each([
+    ['recommend-notes', {}, 'Invalid positive: expected 1 to 10 strings'],
+    ['recommend-notes', { positive: [] }, 'Invalid positive: expected 1 to 10 strings'],
+    ['recommend-notes', { positive: [2] }, 'Invalid positive: expected 1 to 10 strings'],
+    [
+      'recommend-notes',
+      { positive: Array(11).fill('notes/a.md') },
+      'Invalid positive: expected 1 to 10 strings',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], negative: 'bad' },
+      'Invalid negative: expected 0 to 10 strings',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], negative: Array(11).fill('notes/b.md') },
+      'Invalid negative: expected 0 to 10 strings',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], k: 0 },
+      'Invalid k: expected an integer from 1 to 50',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], k: 1.5 },
+      'Invalid k: expected an integer from 1 to 50',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], k: 51 },
+      'Invalid k: expected an integer from 1 to 50',
+    ],
+    [
+      'recommend-notes',
+      { positive: ['notes/a.md'], strategy: 'bad' },
+      'Invalid strategy: expected best_score or average_vector',
+    ],
+    [
+      'maintenance-decision',
+      { finding: 'nope', decision: 'accept' },
+      'Invalid finding: expected an id like f17',
+    ],
+    [
+      'maintenance-decision',
+      { finding: 'f17', decision: 'maybe' },
+      'Invalid decision: expected accept or reject',
+    ],
+  ])('validates %s before touching the store', async (name, args, error) => {
+    const { executeToolCall } = await import('../src/tools/handlers.js');
+    const store = {
+      missingPaths: vi.fn(),
+      recommendNotes: vi.fn(),
+      decideFinding: vi.fn(),
+      refreshClassCounts: vi.fn(),
+    };
+    await expect(executeToolCall(name, args, {}, { store })).rejects.toThrow(error);
+    for (const method of Object.values(store)) expect(method).not.toHaveBeenCalled();
+  });
+  it('uses built-in redaction without logging and custom redaction with logging', async () => {
+    const { executeToolCall } = await import('../src/tools/handlers.js');
+    const store = {
+      decideFinding: vi
+        .fn()
+        .mockResolvedValue({
+          id: 17,
+          class: 'link-related',
+          paths: ['notes/a.md'],
+          status: 'accepted',
+        }),
+      refreshClassCounts: vi.fn(),
+    };
+    await executeToolCall(
+      'maintenance-decision',
+      { finding: '17', decision: 'accept', note: 'a'.repeat(64) },
+      {},
+      { store }
+    );
+    expect(store.decideFinding).toHaveBeenLastCalledWith(17, 'accepted', 'tool', null, false);
+    await executeToolCall(
+      'maintenance-decision',
+      { finding: 'f17', decision: 'reject', note: 'private marker' },
+      {},
+      { store },
+      undefined,
+      { patterns: [/private marker/] }
+    );
+    expect(store.decideFinding).toHaveBeenLastCalledWith(17, 'rejected', 'tool', null, false);
+    await executeToolCall(
+      'maintenance-decision',
+      { finding: 'f17', decision: 'accept', note: 'useful' },
+      {},
+      { store }
+    );
+    expect(store.decideFinding).toHaveBeenLastCalledWith(17, 'accepted', 'tool', 'useful', false);
+  });
+});

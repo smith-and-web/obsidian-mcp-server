@@ -346,14 +346,17 @@ ${Array.from({ length: 4 }, (_, i) => `## Section ${n} ${i}\n\n${'alpha '.repeat
   ])('matches legacy scores and tie-group membership: %s', async query => {
     const [vector] = await service.embedder.embed([query]);
     const hits = await service.store.search(vector, query, { k: 50, ranking: DEFAULT_RANKING });
-    const legacy = await service.store['pool'].query(LEGACY_SQL, [
-      collection,
-      pgvector.toSql(vector),
-      50,
-      query,
-      50,
-      50,
-    ]);
+    // Use the same iterative HNSW setting as search(), including on a reused database.
+    const client = await service.store['pool'].connect();
+    let legacy;
+    try {
+      await client.query('BEGIN');
+      await client.query('SET LOCAL hnsw.iterative_scan = strict_order');
+      legacy = await client.query(LEGACY_SQL, [collection, pgvector.toSql(vector), 50, query, 50, 50]);
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
     const expected = legacy.rows.map(r => ({ ...r, score: Number(Number(r.rrf).toFixed(5)) }));
     expect(hits.map(h => h.score)).toEqual(expected.map(h => h.score));
     for (let start = 0; start < hits.length;) {

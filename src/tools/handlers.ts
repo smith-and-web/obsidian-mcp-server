@@ -5,6 +5,8 @@
 
 import type { VaultManager } from '../vault/VaultManager.js';
 import type { SearchService } from '../index/SearchService.js';
+import { BUILTIN_PATTERNS, isSensitive } from '../learn/redact.js';
+import { normalisePath } from '../learn/log.js';
 import { NO_CONTEXT, type CallContext, type LearnLog } from '../learn/log.js';
 
 export interface ToolArguments {
@@ -52,6 +54,11 @@ export interface ToolArguments {
   usedPaths?: string[];
   expectedPaths?: string[];
   note?: string;
+  positive?: string[];
+  negative?: string[];
+  strategy?: string;
+  finding?: string;
+  decision?: string;
 }
 
 /**
@@ -226,6 +233,66 @@ export async function executeToolCall(
     case 'search-feedback':
       if (!learn) throw new Error('search-feedback requires LEARN_LOG=true and semantic search');
       return learn.recordFeedback(args);
+    case 'recommend-notes': {
+      const service = requireSearch(search, name);
+      for (const [field, values, min] of [
+        ['positive', args.positive, 1],
+        ['negative', args.negative === undefined ? [] : args.negative, 0],
+      ] as const) {
+        if (
+          !Array.isArray(values) ||
+          values.length < min ||
+          values.length > 10 ||
+          values.some(v => typeof v !== 'string')
+        )
+          throw new Error(`Invalid ${field}: expected ${min} to 10 strings`);
+      }
+      const k = args.k === undefined ? 10 : args.k;
+      if (!Number.isInteger(k) || k < 1 || k > 50)
+        throw new Error('Invalid k: expected an integer from 1 to 50');
+      const strategy = args.strategy ?? 'best_score';
+      if (strategy !== 'best_score' && strategy !== 'average_vector')
+        throw new Error('Invalid strategy: expected best_score or average_vector');
+      const positive = args.positive!.map(normalisePath),
+        negative = (args.negative === undefined ? [] : args.negative).map(normalisePath);
+      const missing = await service.store.missingPaths([...positive, ...negative]);
+      if (missing.length) throw new Error(`Unknown notes: ${missing.join(', ')}`);
+      const results = await service.store.recommendNotes({
+        positive,
+        negative,
+        k,
+        strategy,
+        type: args.type,
+        directory: args.directory,
+      });
+      return { strategy, positive, negative, results };
+    }
+    case 'maintenance-decision': {
+      const service = requireSearch(search, name);
+      if (typeof args.finding !== 'string' || !/^f?(\d+)$/.test(args.finding))
+        throw new Error('Invalid finding: expected an id like f17');
+      if (args.decision !== 'accept' && args.decision !== 'reject')
+        throw new Error('Invalid decision: expected accept or reject');
+      const id = Number(args.finding.replace(/^f/, ''));
+      const note =
+        typeof args.note === 'string' &&
+        !isSensitive(args.note, learn?.patterns ?? BUILTIN_PATTERNS)
+          ? args.note
+          : null;
+      const row = await service.store.decideFinding(
+        id,
+        args.decision === 'accept' ? 'accepted' : 'rejected',
+        'tool',
+        note,
+        false
+      );
+      if (!row) return { recorded: false, reason: 'unknown finding' };
+      await service.store.refreshClassCounts();
+      return {
+        recorded: true,
+        finding: { id: `f${row.id}`, class: row.class, paths: row.paths, status: row.status },
+      };
+    }
     case 'index-status':
       return requireSearch(search, name).indexStatus();
     case 'reindex-note':
