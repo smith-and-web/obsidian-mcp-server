@@ -10,6 +10,7 @@ import express from 'express';
 import { VaultManager } from './vault/VaultManager.js';
 import { createMCPServer } from './server/mcp.js';
 import { readInstructions } from './server/instructions.js';
+import { readKeepaliveConfig } from './server/keepalive.js';
 import { corsMiddleware, authMiddleware } from './server/middleware.js';
 import { readIndexConfig } from './index/config.js';
 import { SearchService } from './index/SearchService.js';
@@ -21,6 +22,8 @@ const VAULT_PATH = process.env.VAULT_PATH || '/vault';
 const COMPACT_RESPONSES = process.env.COMPACT_RESPONSES === 'true';
 const API_KEY = process.env.API_KEY;
 const INSTRUCTIONS = readInstructions();
+const KEEPALIVE = readKeepaliveConfig();
+if (KEEPALIVE.error) console.error(`${KEEPALIVE.error}; using ${KEEPALIVE.seconds}s`);
 
 // Initialize Express app
 const app = express();
@@ -61,7 +64,9 @@ console.log(
 
 // Initialize MCP handlers
 const { handleSSEConnection, handleMessagePost, handlePostRequest, handleSessionDelete } =
-  createMCPServer(vaultManager, search, INSTRUCTIONS, search?.learn ?? null);
+  createMCPServer(vaultManager, search, INSTRUCTIONS, search?.learn ?? null, {
+    keepaliveSeconds: KEEPALIVE.seconds,
+  });
 
 // Health check endpoint (public - no auth required)
 app.get('/health', (_req, res) => {
@@ -99,6 +104,7 @@ app.listen(PORT, () => {
   console.log(`Authentication: ${API_KEY ? 'enabled' : 'disabled'}`);
   if (REQUIRE_TAILSCALE_LOGIN) console.log(`Tailscale login required: ${REQUIRE_TAILSCALE_LOGIN}`);
   console.log(`Instructions: ${INSTRUCTIONS ? `${INSTRUCTIONS.length} chars` : 'none'}`);
+  console.log(`SSE keepalive: ${KEEPALIVE.seconds ? `every ${KEEPALIVE.seconds}s` : 'disabled'}`);
   console.log(`Semantic search: ${search ? `enabled (${search.embedder.model})` : 'disabled'}`);
   console.log(`SSE endpoint: http://0.0.0.0:${PORT}/sse`);
 });
