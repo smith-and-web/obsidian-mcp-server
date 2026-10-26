@@ -1076,10 +1076,12 @@ export class IndexStore {
                SELECT id, (path = $2 OR path = $2 || '.md') AS exact
                FROM documents
                WHERE collection = $3
-                 AND (path = $2 OR path = $2 || '.md' OR path LIKE '%/' || $2 OR path LIKE '%/' || $2 || '.md')
+                 AND (path = $2 OR path = $2 || '.md' OR right(path, length($2) + 1) = '/' || $2
+                      OR right(path, length($2) + 4) = '/' || $2 || '.md')
              ) m
              WHERE exact OR (SELECT count(*) FROM documents d2 WHERE d2.collection = $3
-                               AND (d2.path LIKE '%/' || $2 OR d2.path LIKE '%/' || $2 || '.md')) = 1
+                               AND (right(d2.path, length($2) + 1) = '/' || $2
+                                    OR right(d2.path, length($2) + 4) = '/' || $2 || '.md')) = 1
              ORDER BY exact DESC LIMIT 1))
            ON CONFLICT DO NOTHING`,
           [id, target, this.collection]
@@ -1101,7 +1103,7 @@ export class IndexStore {
       const baseNoExt = base.replace(/\.md$/i, '');
       const same = await client.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM documents
-         WHERE collection = $1 AND (path = $2 OR path LIKE '%/' || $2)`,
+         WHERE collection = $1 AND (path = $2 OR right(path, length($2) + 1) = '/' || $2)`,
         [this.collection, base]
       );
       const unique = same.rows[0].n === '1';
@@ -1245,7 +1247,7 @@ export class IndexStore {
     const dir = normalizeDirectory(filters.directory);
     if (dir) {
       params.push(dir);
-      clauses.push(`${alias}.path LIKE $${params.length} || '%'`);
+      clauses.push(`left(${alias}.path, length($${params.length})) = $${params.length}`);
     }
     if (filters.tags && filters.tags.length) {
       params.push(filters.tags);
