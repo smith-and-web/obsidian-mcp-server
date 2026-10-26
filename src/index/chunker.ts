@@ -71,6 +71,8 @@ export function deriveTitle(
 
 /**
  * Extract wikilink targets (`[[Target]]`, `[[Target|alias]]`, `[[Target#heading]]`).
+ * Inside a Markdown table Obsidian requires the alias pipe escaped (`[[Target\|alias]]`);
+ * the backslash belongs to the table syntax, not the target, so it is dropped.
  * Embeds (`![[...]]`) are included; the caller can filter by extension if needed.
  */
 export function extractWikilinks(body: string): string[] {
@@ -78,10 +80,15 @@ export function extractWikilinks(body: string): string[] {
   const re = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    const target = m[1].trim();
+    const target = stripTableEscape(m[1]).trim();
     if (target) out.add(target);
   }
   return Array.from(out);
+}
+
+/** Drop the table-escape backslash left on a target split at `\|` (`[[A\|b]]` -> `A`). */
+export function stripTableEscape(target: string): string {
+  return target.replace(/\\+$/, '');
 }
 
 interface Section {

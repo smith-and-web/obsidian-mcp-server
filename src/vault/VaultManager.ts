@@ -12,6 +12,7 @@ import {
   setFrontmatterField,
   toYamlNode,
 } from './frontmatter.js';
+import { stripTableEscape } from '../index/chunker.js';
 
 /** Escape text for use inside a RegExp, so headings like "Status (2026-10-14)" match literally. */
 function escapeRegExp(text: string): string {
@@ -1120,7 +1121,7 @@ export class VaultManager {
           let match;
 
           while ((match = wikiLinkRegex.exec(content)) !== null) {
-            const linkTarget = match[1].trim();
+            const linkTarget = stripTableEscape(match[1]).trim();
             const linkLower = linkTarget.toLowerCase();
             const noteNameLower = noteName.toLowerCase();
 
@@ -1236,7 +1237,7 @@ export class VaultManager {
           let match;
 
           while ((match = wikiLinkRegex.exec(content)) !== null) {
-            const linkTarget = match[1].trim();
+            const linkTarget = stripTableEscape(match[1]).trim();
 
             if (
               linkTarget.startsWith('http') ||

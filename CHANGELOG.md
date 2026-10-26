@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.2] - 2026-10-26
+
+### Fixed
+- A table-escaped wikilink alias (`[[Target\|alias]]`, the form Obsidian requires inside a Markdown table) no longer fails the whole note with `LIKE pattern must not end with escape character`. The indexer, `get-backlinks` and `find-broken-links` drop the table-escape backslash and resolve the link to `Target`.
+- Link resolution and the directory search filter compare paths with `right()`/`left()` instead of `LIKE`, so `%` and `_` in link text or a directory name match literally. A basename such as `a_c` no longer also matches `abc` and stays unresolved as ambiguous.
+
 ## [1.11.1] - 2026-10-24
 
 ### Fixed
