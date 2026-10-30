@@ -214,6 +214,9 @@ export class IndexStore {
       await client.query(
         await fs.readFile(path.resolve(here, '..', '..', 'sql', '003_maintenance.sql'), 'utf-8')
       );
+      await client.query(
+        await fs.readFile(path.resolve(here, '..', '..', 'sql', '004_trails.sql'), 'utf-8')
+      );
       const existing = await client.query<{ key: string; value: string }>(
         'SELECT key, value FROM meta WHERE key IN ($1, $2, $3)',
         ['embed_model', 'dim', 'schema_version']
@@ -258,7 +261,7 @@ export class IndexStore {
   async resetSchema(): Promise<void> {
     await this.pool.query('ALTER TABLE IF EXISTS search_log DROP COLUMN IF EXISTS query_embedding');
     await this.pool.query(
-      'DROP TABLE IF EXISTS doc_history, links, chunks, documents, index_runs, meta CASCADE'
+      'DROP TABLE IF EXISTS trails, note_heat, trails_runs, doc_history, links, chunks, documents, index_runs, meta CASCADE'
     );
   }
 
@@ -269,6 +272,13 @@ export class IndexStore {
     await this.pool.query(
       await fs.readFile(path.resolve(here, '..', '..', 'sql', '003_maintenance.sql'), 'utf-8')
     );
+    await this.pool.query(
+      await fs.readFile(path.resolve(here, '..', '..', 'sql', '004_trails.sql'), 'utf-8')
+    );
+  }
+
+  async ensureTrailsSchema(): Promise<void> {
+    await this.ensureMaintenanceSchema();
   }
 
   async recordDocHistory(client: pg.PoolClient, documentId: number): Promise<void> {
