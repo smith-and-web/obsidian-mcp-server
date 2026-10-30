@@ -2,6 +2,7 @@
  * MCP Server setup and handlers
  */
 
+import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
@@ -11,6 +12,10 @@ import type { VaultManager } from '../vault/VaultManager.js';
 import type { SearchService } from '../index/SearchService.js';
 import type { CallContext, LearnLog } from '../learn/log.js';
 import type { Request, Response } from 'express';
+
+const serverVersion = JSON.parse(
+  fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')
+).version as string;
 
 interface MCPRequest {
   method: string;
@@ -104,7 +109,7 @@ export function createMCPServer(
     const server = new Server(
       {
         name: 'obsidian-mcp',
-        version: '1.0.0',
+        version: serverVersion,
       },
       {
         capabilities: {
@@ -214,7 +219,7 @@ export function createMCPServer(
           },
           serverInfo: {
             name: 'obsidian-mcp',
-            version: '1.0.0',
+            version: serverVersion,
           },
           ...(instructions ? { instructions } : {}),
         },

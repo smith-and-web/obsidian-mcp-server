@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-10-30
+
+### Added
+- Nightly trails and heat rebuild CLI from session-day reads and feedback, with decay and dry-run reporting.
+- Generated Breadcrumbs trails list note and guarded, capped heat frontmatter writes, including clear mode.
+- Report-only, graduable `link-coread` maintenance findings for unlinked co-read pairs.
+- Reversible `backfill-up` CLI with reviewed plans, checksum checks, and hub selection by centroid similarity.
+- Configurable frontmatter link keys and volatile keys that avoid re-embedding or history writes for metadata-only changes.
+
+### Changed
+- `ensureMaintenanceSchema` also applies `004_trails.sql`; the trails CLI checks that the index exists.
+- MCP server information reports the package version at runtime.
+
 ## [1.11.2] - 2026-10-26
 
 ### Fixed

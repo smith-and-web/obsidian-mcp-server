@@ -76,7 +76,7 @@ describe('createMCPServer handlePostRequest', () => {
         },
         serverInfo: {
           name: 'obsidian-mcp',
-          version: '1.0.0',
+          version: '1.12.0',
         },
       },
     });
