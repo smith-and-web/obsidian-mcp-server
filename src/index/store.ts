@@ -282,6 +282,7 @@ export class IndexStore {
   }
 
   private trailsClient: pg.PoolClient | null = null;
+  private heatPreview: Map<string, number> | null = null;
 
   async trailsLock(): Promise<boolean> {
     if (this.trailsClient) return false;
@@ -340,6 +341,7 @@ export class IndexStore {
     thresholds: number[];
     commit: boolean;
   }): Promise<{ edges: number; buckets: number[] }> {
+    this.heatPreview = null;
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -439,6 +441,13 @@ FROM scores;`,
       ).rows;
       const buckets = Array<number>(6).fill(0);
       for (const row of rows) buckets[row.bucket] = row.n;
+      if (!opts.commit) {
+        const preview = await client.query<{ path: string; bucket: number }>(
+          'SELECT path, bucket FROM note_heat WHERE collection=$1',
+          [this.collection]
+        );
+        this.heatPreview = new Map(preview.rows.map(row => [row.path, row.bucket]));
+      }
       await client.query(opts.commit ? 'COMMIT' : 'ROLLBACK');
       client.release();
       return { edges, buckets };
@@ -455,7 +464,7 @@ FROM scores;`,
     types: string[],
     clear: boolean
   ): Promise<{ path: string; bucket: number }[]> {
-    return (
+    const rows: { path: string; bucket: number }[] = (
       await this.pool.query(
         `SELECT d.path, coalesce(h.bucket,0)::int AS bucket FROM documents d
       LEFT JOIN note_heat h ON h.collection=d.collection AND h.path=d.path
@@ -463,6 +472,9 @@ FROM scores;`,
         [this.collection, types, clear]
       )
     ).rows;
+    return !clear && this.heatPreview
+      ? rows.map(row => ({ ...row, bucket: this.heatPreview!.get(row.path) ?? 0 }))
+      : rows;
   }
   async trailEdges(minWeight: number): Promise<{ pathA: string; pathB: string; weight: number }[]> {
     return (

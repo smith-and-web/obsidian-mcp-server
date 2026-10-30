@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import YAML from 'yaml';
+import { confinedNotePath } from './confinedPath.js';
 import { editFrontmatter } from './frontmatter.js';
 
 export type EditResult =
@@ -34,8 +35,20 @@ export function sameExceptKey(before: string, after: string, key: string): boole
 export async function atomicFrontmatterEdit(
   absPath: string,
   edit: (doc: YAML.Document) => void,
-  opts: { minAgeMs: number; now: Date; onlyKey: string; checkOnly?: boolean }
+  opts: {
+    minAgeMs: number;
+    now: Date;
+    onlyKey: string;
+    checkOnly?: boolean;
+    vaultPath?: string;
+    checkContent?: (content: string) => boolean;
+  }
 ): Promise<EditResult> {
+  const checkPath = async () => {
+    if (opts.vaultPath)
+      await confinedNotePath(opts.vaultPath, path.relative(path.resolve(opts.vaultPath), absPath));
+  };
+  await checkPath();
   let stat;
   try {
     stat = await fs.stat(absPath);
@@ -51,6 +64,7 @@ export async function atomicFrontmatterEdit(
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return 'missing';
     throw err;
   }
+  if (opts.checkContent && !opts.checkContent(content)) return 'raced';
   let result;
   try {
     result = editFrontmatter(content, edit, { createIfMissing: false });
@@ -65,6 +79,7 @@ export async function atomicFrontmatterEdit(
   // Exclusive creation prevents competing writers from sharing the staging file.
   let staged = false;
   try {
+    await checkPath();
     await fs.writeFile(temp, result.content, { encoding: 'utf8', flag: 'wx', mode: stat.mode });
     staged = true;
     let next;
@@ -75,6 +90,7 @@ export async function atomicFrontmatterEdit(
       throw err;
     }
     if (next.mtimeMs !== stat.mtimeMs || next.size !== stat.size) return 'raced';
+    await checkPath();
     await fs.rename(temp, absPath);
     return 'written';
   } catch (err) {

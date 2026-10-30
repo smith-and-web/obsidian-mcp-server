@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { quoteYaml, zonedTimestamp } from '../maintain/report.js';
+import { confinedNotePath } from '../vault/confinedPath.js';
 import { parseFrontmatter } from '../vault/frontmatter.js';
 export interface TrailsNoteInput {
   notePath: string;
@@ -68,14 +69,14 @@ export async function writeTrailsNote(
   vaultPath: string,
   input: TrailsNoteInput
 ): Promise<'written' | 'unchanged'> {
-  const abs = path.resolve(vaultPath, input.notePath);
-  let old = '';
+  const abs = await confinedNotePath(vaultPath, input.notePath);
+  let old: string | null = null;
   try {
     old = await fs.readFile(abs, 'utf8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  if (old) {
+  if (old !== null) {
     const fm = parseFrontmatter(old).frontmatter;
     if (fm?.['BC-list-note-field'] !== 'trail')
       throw new Error(`brain-trails: ${input.notePath} is not a trails note`);
@@ -85,18 +86,28 @@ export async function writeTrailsNote(
       updated: fm.updated ? String(fm.updated) : undefined,
     };
     if (renderTrailsNote(input) === old) return 'unchanged';
-  } else {
-    // An existing empty file is still user-owned.
+  }
+  await confinedNotePath(vaultPath, input.notePath, true);
+  const temp = path.join(path.dirname(abs), `.${path.basename(abs)}.tmp`);
+  let staged = false;
+  try {
+    await fs.writeFile(temp, renderTrailsNote({ ...input, updated: undefined }), {
+      encoding: 'utf8',
+      flag: 'wx',
+    });
+    staged = true;
+    await confinedNotePath(vaultPath, input.notePath);
+    let current: string | null = null;
     try {
-      await fs.stat(abs);
-      throw new Error(`brain-trails: ${input.notePath} is not a trails note`);
+      current = await fs.readFile(abs, 'utf8');
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
+    if (current !== old) throw new Error(`brain-trails: ${input.notePath} changed during write`);
+    await fs.rename(temp, abs);
+  } finally {
+    if (staged) await fs.rm(temp, { force: true });
   }
-  await fs.mkdir(path.dirname(abs), { recursive: true });
-  const temp = path.join(path.dirname(abs), `.${path.basename(abs)}.tmp`);
-  await fs.writeFile(temp, renderTrailsNote({ ...input, updated: undefined }), 'utf8');
-  await fs.rename(temp, abs);
+
   return 'written';
 }

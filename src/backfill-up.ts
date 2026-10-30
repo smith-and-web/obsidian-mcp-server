@@ -5,6 +5,7 @@ import { parseArgs } from 'util';
 import { isDeepStrictEqual } from 'util';
 import { IndexStore } from './index/store.js';
 import { sha256 } from './index/scanner.js';
+import { confinedNotePath } from './vault/confinedPath.js';
 import { atomicFrontmatterEdit } from './vault/atomicEdit.js';
 import { parseFrontmatter, setFrontmatterField } from './vault/frontmatter.js';
 
@@ -80,12 +81,6 @@ export function readBackfillOptions(
     return { error: (err as Error).message };
   }
 }
-function vaultFile(root: string, rel: string): string {
-  const abs = path.resolve(root, rel);
-  if (!rel.endsWith('.md') || rel.includes('\\') || !abs.startsWith(path.resolve(root) + path.sep))
-    throw new Error(`Invalid note path: ${rel}`);
-  return abs;
-}
 async function basenames(root: string): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   const walk = async (dir: string): Promise<void> => {
@@ -159,23 +154,40 @@ export async function runBackfillUp(
         hub =>
           `[[${names.get(path.basename(hub, '.md').toLowerCase()) === 1 ? path.basename(hub, '.md') : hub.replace(/\.md$/, '')}]]`
       );
-      const abs = vaultFile(root, row.path);
+      const abs = await confinedNotePath(root, row.path);
+      const source = await fs.readFile(abs, 'utf8');
       const result = await atomicFrontmatterEdit(
         abs,
         d => setFrontmatterField(d, options.field, value),
-        { now: opts.now, minAgeMs: 0, onlyKey: options.field, checkOnly: true }
+        {
+          now: opts.now,
+          minAgeMs: 0,
+          onlyKey: options.field,
+          checkOnly: true,
+          vaultPath: root,
+          checkContent: content => content === source,
+        }
       );
       if (result === 'roundtrip' || result === 'invalid') {
         plan.reformat.push(row.path);
         continue;
       }
-      if (result === 'missing') continue;
-      plan.entries.push({ path: row.path, sha256: sha256(await fs.readFile(abs, 'utf8')), value });
+      if (result === 'missing' || result === 'raced') continue;
+      plan.entries.push({ path: row.path, sha256: sha256(source), value });
     }
     const target = path.resolve(options.plan),
       temp = path.join(path.dirname(target), `.${path.basename(target)}.tmp`);
-    await fs.writeFile(temp, JSON.stringify(plan, null, 2) + '\n', 'utf8');
-    await fs.rename(temp, target);
+    let staged = false;
+    try {
+      await fs.writeFile(temp, JSON.stringify(plan, null, 2) + '\n', {
+        encoding: 'utf8',
+        flag: 'wx',
+      });
+      staged = true;
+      await fs.rename(temp, target);
+    } finally {
+      if (staged) await fs.rm(temp, { force: true });
+    }
     for (const e of plan.entries) opts.log(`${e.path} -> ${e.value.join(', ')}`);
     for (const p of plan.reformat) opts.log(`reformat: ${p}`);
     opts.log(
@@ -195,7 +207,7 @@ export async function runBackfillUp(
   };
   const changed: string[] = [];
   for (const entry of plan.entries) {
-    const abs = vaultFile(root, entry.path);
+    const abs = await confinedNotePath(root, entry.path);
     let text;
     try {
       text = await fs.readFile(abs, 'utf8');
@@ -228,6 +240,7 @@ export async function runBackfillUp(
       }
     }
     let mismatch = false;
+    let checksumChanged = false;
     const result = await atomicFrontmatterEdit(
       abs,
       d => {
@@ -237,9 +250,20 @@ export async function runBackfillUp(
         }
         setFrontmatterField(d, plan.field, options.revert ? null : entry.value);
       },
-      { now: opts.now, minAgeMs: 0, onlyKey: plan.field }
+      {
+        now: opts.now,
+        minAgeMs: 0,
+        onlyKey: plan.field,
+        vaultPath: root,
+        checkContent: options.apply
+          ? content => {
+              checksumChanged = sha256(content) !== entry.sha256;
+              return !checksumChanged;
+            }
+          : undefined,
+      }
     );
-    if (mismatch) {
+    if (mismatch || checksumChanged) {
       counts.changed++;
       changed.push(entry.path);
     } else counts[result as keyof typeof counts]++;

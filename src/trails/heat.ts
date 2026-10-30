@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import type { IndexStore } from '../index/store.js';
+import { confinedNotePath } from '../vault/confinedPath.js';
 import { atomicFrontmatterEdit } from '../vault/atomicEdit.js';
 import { parseFrontmatter, setFrontmatterField } from '../vault/frontmatter.js';
 import type { TrailsConfig } from './config.js';
@@ -28,8 +29,7 @@ export async function writeHeat(
       metrics.heatCapped++;
       continue;
     }
-    const abs = path.resolve(root, item.path);
-    if (!abs.startsWith(root + path.sep)) throw new Error(`Path escapes vault: ${item.path}`);
+    const abs = await confinedNotePath(root, item.path);
     let text;
     try {
       text = await fs.readFile(abs, 'utf8');
@@ -60,6 +60,7 @@ export async function writeHeat(
         now: opts.now,
         minAgeMs: opts.clear || opts.checkOnly ? 0 : config.heatMinAgeMinutes * 60000,
         onlyKey: 'heat',
+        vaultPath: root,
         checkOnly: opts.checkOnly,
       }
     );
