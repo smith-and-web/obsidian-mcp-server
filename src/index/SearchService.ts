@@ -51,19 +51,25 @@ export class SearchService {
   readonly learn: LearnLog | null;
   private vaultPath: string;
   private ranking: RankingConfig;
+  private frontmatterLinkKeys: string[];
+  private volatileKeys: string[];
 
   private constructor(
     store: IndexStore,
     embedder: Embedder,
     vaultPath: string,
     ranking: RankingConfig,
-    learn: LearnLog | null
+    learn: LearnLog | null,
+    frontmatterLinkKeys: string[],
+    volatileKeys: string[]
   ) {
     this.store = store;
     this.embedder = embedder;
     this.vaultPath = vaultPath;
     this.ranking = ranking;
     this.learn = learn;
+    this.frontmatterLinkKeys = frontmatterLinkKeys ?? [];
+    this.volatileKeys = volatileKeys ?? [];
   }
 
   /**
@@ -82,7 +88,9 @@ export class SearchService {
       embedder,
       vaultPath,
       config.ranking,
-      config.learn?.enabled ? new LearnLog(store, config.learn) : null
+      config.learn?.enabled ? new LearnLog(store, config.learn) : null,
+      config.frontmatterLinkKeys,
+      config.volatileKeys
     );
   }
 
@@ -182,6 +190,8 @@ export class SearchService {
       content,
       {
         vaultPath: this.vaultPath,
+        frontmatterLinkKeys: this.frontmatterLinkKeys,
+        volatileKeys: this.volatileKeys,
         store: this.store,
         embedder: this.embedder,
         warn: msg => {

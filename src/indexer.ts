@@ -84,6 +84,8 @@ async function main(): Promise<void> {
     try {
       const stats = await scanOnce({
         vaultPath,
+        frontmatterLinkKeys: config.frontmatterLinkKeys,
+        volatileKeys: config.volatileKeys,
         store,
         embedder,
         log: verbose ? log : undefined,
