@@ -4,7 +4,8 @@
  * Walks the vault, applies the exclusion rules, and compares what it finds
  * against the store. inotify does not propagate over NFS, so this is a poll:
  * cheap on the common path (stat only; nothing is read unless mtime or size
- * moved) and exact on the rare path (sha256 before re-embedding).
+ * moved, or the note was last checked within seconds of its last write) and
+ * exact on the rare path (sha256 before re-embedding).
  */
 
 import { createHash } from 'crypto';
@@ -20,6 +21,9 @@ import {
 } from './exclusions.js';
 import type { Embedder } from './embedder.js';
 import type { IndexStore } from './store.js';
+
+/** A hash checked less than this long after the file's mtime is re-checked next pass. */
+const SETTLE_MS = 5000;
 
 export interface ScanStats {
   seen: number;
@@ -170,10 +174,15 @@ export async function scanOnce(opts: ScannerOptions): Promise<ScanStats> {
     stats.seen++;
     seenPaths.add(file.relPath);
     const prev = known.get(file.relPath);
+    // Trust the stat only once the stored hash was checked comfortably after the
+    // last write. A read that lands while a write is still finishing (common on
+    // NFS) can store a stale hash with the final size and mtime; such a note is
+    // re-read on the next pass, and re-hashing is cheap.
     const statUnchanged =
       prev &&
       prev.size === file.size &&
-      Math.abs(prev.mtime.getTime() - file.mtime.getTime()) < 1000;
+      prev.mtime.getTime() === file.mtime.getTime() &&
+      prev.indexedAt.getTime() - file.mtime.getTime() >= SETTLE_MS;
     if (statUnchanged) continue;
 
     try {
