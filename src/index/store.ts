@@ -1219,6 +1219,34 @@ FROM scores;`,
     return result.rows[0];
   }
 
+  /** Compare live and shadow ranks against the first linked note read per search. */
+  async learnReportTrailsShadow(days: number) {
+    const result = await this.pool.query<{
+      searches: string;
+      top1_differs: number | null;
+      mrr_live: number | null;
+      mrr_shadow: number | null;
+    }>(
+      `WITH qualifying AS (
+         SELECT s.results, s.shadow, first_read.path
+         FROM search_log s
+         JOIN LATERAL (
+           SELECT r.path FROM note_reads r
+           WHERE r.request_id = s.id AND r.collection = s.collection
+           ORDER BY r.at, r.id LIMIT 1
+         ) first_read ON true
+         WHERE s.collection = $1 AND s.at >= now() - make_interval(days => $2)
+           AND s.shadow IS NOT NULL
+       ) SELECT count(*) AS searches,
+         avg(CASE WHEN results->0->>'path' IS DISTINCT FROM shadow->'results'->0->>'path' THEN 1.0 ELSE 0.0 END)::float8 AS top1_differs,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(results) hit WHERE hit->>'path' = path), 0))::float8 AS mrr_live,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(shadow->'results') hit WHERE hit->>'path' = path), 0))::float8 AS mrr_shadow
+       FROM qualifying`,
+      [this.collection, days]
+    );
+    return result.rows[0];
+  }
+
   async learnReportBehaviour(days: number) {
     const result = await this.pool.query<{
       total: string;
