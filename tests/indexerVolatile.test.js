@@ -6,6 +6,7 @@ import pg from 'pg';
 import { IndexStore } from '../src/index/store.js';
 import { FakeEmbedder } from '../src/index/embedder.js';
 import { scanOnce, contentHash, sha256 } from '../src/index/scanner.js';
+import { atomicFrontmatterEdit } from '../src/vault/atomicEdit.js';
 import { editFrontmatter, setFrontmatterField } from '../src/vault/frontmatter.js';
 const run = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 run('indexerVolatile', () => {
@@ -13,7 +14,7 @@ run('indexerVolatile', () => {
   const collection = `volatile-${process.pid}-${Date.now()}`;
   const note = () => path.join(root, 'notes/x.md');
   const snapshot = async () => (await pool.query('SELECT d.content_sha256, array_agg(c.id ORDER BY c.id) AS chunks, (SELECT count(*)::int FROM doc_history h WHERE h.document_id=d.id) AS history FROM documents d JOIN chunks c ON c.document_id=d.id WHERE d.collection=$1 GROUP BY d.id', [collection])).rows[0];
-  const edit = async (key, value) => { const text = await fs.readFile(note(), 'utf8'); await fs.writeFile(note(), editFrontmatter(text, d => setFrontmatterField(d, key, value)).content); const date = new Date(Date.now() + 5000); await fs.utimes(note(), date, date); };
+  const edit = async (key, value) => { expect(await atomicFrontmatterEdit(note(), d => setFrontmatterField(d, key, value), { minAgeMs: 0, now: new Date(Date.now() + 10000), onlyKey: key })).toBe('written'); const date = new Date(Date.now() + 5000); await fs.utimes(note(), date, date); };
   beforeAll(async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'volatile-')); await fs.mkdir(path.join(root, 'notes'));
     original = '---\ntitle: X\nsummary: Example\naliases: []\n---\n# X\nBody\n';
