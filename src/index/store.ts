@@ -31,6 +31,8 @@ export interface DocumentRecord {
   contentSha256: string;
   mtime: Date;
   size: number;
+  /** When the stored hash was last checked against the file's bytes. */
+  indexedAt: Date;
 }
 
 export interface UpsertDocumentInput {
@@ -1248,9 +1250,11 @@ FROM scores;`,
       content_sha256: string;
       mtime: Date;
       size: string;
-    }>('SELECT id, path, content_sha256, mtime, size FROM documents WHERE collection = $1', [
-      this.collection,
-    ]);
+      indexed_at: Date;
+    }>(
+      'SELECT id, path, content_sha256, mtime, size, indexed_at FROM documents WHERE collection = $1',
+      [this.collection]
+    );
     const map = new Map<string, DocumentRecord>();
     for (const r of res.rows) {
       map.set(r.path, {
@@ -1259,6 +1263,7 @@ FROM scores;`,
         contentSha256: r.content_sha256,
         mtime: r.mtime,
         size: Number(r.size),
+        indexedAt: r.indexed_at,
       });
     }
     return map;
@@ -1390,7 +1395,7 @@ FROM scores;`,
   /** Refresh mtime/size for a document whose bytes did not change. */
   async upsertDocumentStat(docPath: string, mtime: Date, size: number): Promise<void> {
     await this.pool.query(
-      'UPDATE documents SET mtime = $3, size = $4 WHERE collection = $1 AND path = $2',
+      'UPDATE documents SET mtime = $3, size = $4, indexed_at = now() WHERE collection = $1 AND path = $2',
       [this.collection, docPath, mtime, size]
     );
   }

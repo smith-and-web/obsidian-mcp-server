@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-10-30
+
+### Fixed
+- The indexer no longer keeps a stale hash when a note is read while a write to it is finishing. A note whose
+  stored hash was checked less than 5 seconds after its mtime is re-read on the next pass (hashing only;
+  unchanged content is not re-embedded), and size plus exact mtime must match before a stat is trusted.
+
 ## [1.12.0] - 2026-10-30
 
 ### Added
