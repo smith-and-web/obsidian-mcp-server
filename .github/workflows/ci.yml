@@ -76,3 +76,16 @@ jobs:
           sleep 3
           curl -s http://localhost:3000/health | grep -q '"status":"ok"'
           docker stop test-server
+
+  plugin:
+    name: plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: obsidian-plugin/package-lock.json
+      - name: Test and build Obsidian plugin
+        run: cd obsidian-plugin && npm ci && npm test && npm run lint && npm run build
