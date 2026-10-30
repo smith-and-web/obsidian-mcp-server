@@ -22,7 +22,8 @@
     "eval": "node dist/eval.js",
     "learn-report": "node dist/learn-report.js",
     "maintain": "node dist/maintain.js",
-    "trails": "node dist/trails.js"
+    "trails": "node dist/trails.js",
+    "backfill-up": "node dist/backfill-up.js"
   },
   "keywords": [
     "obsidian",

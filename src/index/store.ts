@@ -480,6 +480,26 @@ FROM scores;`,
     ).rows;
   }
 
+  async backfillUpCandidates(
+    field: string,
+    hubTypes: string[],
+    childTypes: string[],
+    max: number
+  ): Promise<{ path: string; alreadySet: boolean; hubs: string[] }[]> {
+    return (
+      await this.pool.query(
+        `SELECT child.path, child.frontmatter ? $2 AS "alreadySet",
+      ARRAY(SELECT hub.path FROM links l JOIN documents hub ON hub.id=l.src_document_id
+        WHERE l.target_document_id=child.id AND hub.collection=child.collection
+          AND hub.frontmatter->>'type'=ANY($3)
+        ORDER BY 1 - (hub.centroid <=> child.centroid) DESC, hub.path LIMIT $5) AS hubs
+      FROM documents child WHERE child.collection=$1 AND child.frontmatter->>'type'=ANY($4)
+      ORDER BY child.path`,
+        [this.collection, field, hubTypes, childTypes, max]
+      )
+    ).rows;
+  }
+
   async recordDocHistory(client: pg.PoolClient, documentId: number): Promise<void> {
     await client.query(
       `INSERT INTO doc_history (document_id, content_sha256, summary, summary_body_cosine)
