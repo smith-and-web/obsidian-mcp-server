@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-10-30
+
+### Added
+- Authenticated, read-only `GET /api/related` with heat, read-together trails, centroid similarity and resolved link flags. Sidebar reads never enter the learn log.
+- MCP Related Notes desktop Obsidian plugin: cached related-note sidebar, manual refresh and explicit link insertion. The bearer token stays in per-device local storage.
+- Independent plugin CI tests, typecheck and build; tag-only release workflow with a manifest version guard and the three plugin release assets.
+
 ## [1.12.1] - 2026-10-30
 
 ### Fixed

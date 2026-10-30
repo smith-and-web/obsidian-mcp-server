@@ -831,3 +831,52 @@ Set `INDEX_FRONTMATTER_LINK_KEYS=up,down,same,next,prev` to index typed frontmat
 Review the plan before `npm run backfill-up -- --plan /tmp/up-plan.json --apply`. Changed checksums are skipped; writes add a quoted flow list without changing `updated` or unrelated text. `--revert` removes only a value matching the plan, including a list restyled into block form. Keep the plan for rollback.
 
 Options: required `--plan <file>`, exclusive `--apply` / `--revert` (default dry), `--field <key>` (default `up`), `--hub-types <list>` (default `project,area`), `--child-types <list>` (default `reference,decision,plan`), and `--max <1-10>` (default `3`). Environment: `DATABASE_URL`, `INDEX_COLLECTION`, `VAULT_PATH`. Both CLIs exit 2 for usage/configuration errors, 1 for runtime failures, and 0 on success.
+
+## Related notes endpoint and Obsidian plugin
+
+`GET /api/related?path=notes%2Fa.md&k=8` uses the same bearer authentication and optional
+Tailscale login check as the MCP routes. Semantic search must be enabled. `path` is a
+vault-relative Markdown path (up to 1024 characters); a leading slash is stripped and
+`.md` is appended when missing. `k` is an integer from 1 to 20, default 8.
+
+The response contains `path`, `title`, `heat` (score and bucket, or `null`), `trails`
+(read-together neighbours with `path`, `title`, `weight`, `events`, `lastAt`, `linked`),
+and `similar` (centroid neighbours with `path`, `title`, `score`, `linked`). Resolved
+links in either direction set `linked`. Weights are rounded to one decimal and scores
+to two. Invalid queries return 400, unindexed notes 404, disabled semantic search 503,
+and store failures a generic 500. These reads create no search or note-read log rows,
+so browsing the sidebar does not feed trails.
+
+The **MCP Related Notes** plugin lives in `obsidian-plugin/` and requires desktop
+Obsidian 1.13.0 or newer. Download `main.js`, `manifest.json` and `styles.css` from the
+matching GitHub release into `.obsidian/plugins/mcp-related-notes/`, then enable it
+in Obsidian. In its settings, enter the server URL and bearer token. Only the URL,
+result limit and startup preference are saved in the vault; the password field saves
+the token in Obsidian's per-device local storage. Configure the token separately on
+each device.
+
+Use **Open related notes** to open the right sidebar. It opens at startup by default,
+refreshes 400 ms after changing the active Markdown note, and caches each note for five
+minutes. **Refresh** bypasses that note's cache. **Read together** shows trail event
+counts; **Similar** shows similarity scores; the title displays the heat bucket when
+available. Click a title to open the note (modifier-click opens another pane). **Link**
+adds a wikilink to the active note's `## Related` section, creating that section if
+needed and preserving CRLF line endings. Existing identical links are left alone.
+There is no telemetry and no network operation other than the related endpoint.
+
+To develop the plugin:
+
+```bash
+cd obsidian-plugin
+npm ci
+npm test
+npm run lint
+npm run build
+```
+
+`main.js` is ignored build output. CI validates the plugin separately on Node 22.
+A `v*` tag builds and tests it, requires the manifest version to equal the tag without
+`v`, and uploads the three assets to a GitHub release (creating the release if needed).
+The server package and plugin manifest versions must match; add a new `versions.json`
+key for every release, keeping older keys. Tags also trigger the existing image and
+npm publishing workflows.
