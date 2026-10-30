@@ -1,0 +1,44 @@
+name: Plugin Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  plugin-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: obsidian-plugin/package-lock.json
+      - name: Test and build Obsidian plugin
+        run: cd obsidian-plugin && npm ci && npm test && npm run build
+      - name: Verify manifest matches tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const manifest = JSON.parse(fs.readFileSync("obsidian-plugin/manifest.json", "utf8"));
+            if (manifest.version !== process.env.TAG.slice(1)) {
+              console.error("Plugin version does not match release tag");
+              process.exit(1);
+            }
+          '
+      - name: Publish plugin assets
+        working-directory: obsidian-plugin
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$TAG"; then
+            gh release upload "$TAG" main.js manifest.json styles.css --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --notes "See CHANGELOG.md" main.js manifest.json styles.css
+          fi

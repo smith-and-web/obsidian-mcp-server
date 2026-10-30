@@ -1664,6 +1664,63 @@ FROM scores;`,
     }));
   }
 
+  /** Metadata for the related-notes endpoint, without recording a read. */
+  async relatedDocument(docPath: string): Promise<{
+    title: string;
+    heat: { score: number; bucket: number } | null;
+  } | null> {
+    const result = await this.pool.query(
+      `SELECT d.title, h.score, h.bucket FROM documents d
+       LEFT JOIN note_heat h ON h.collection=d.collection AND h.path=d.path
+       WHERE d.collection=$1 AND d.path=$2`,
+      [this.collection, docPath]
+    );
+    const row = result.rows[0];
+    return row
+      ? {
+          title: row.title,
+          heat: row.score === null ? null : { score: row.score, bucket: row.bucket },
+        }
+      : null;
+  }
+
+  /** Read-together neighbours, ordered before applying the requested limit. */
+  async trailsFor(
+    docPath: string,
+    k: number
+  ): Promise<
+    {
+      path: string;
+      title: string;
+      weight: number;
+      events: number;
+      lastAt: string;
+    }[]
+  > {
+    const result = await this.pool.query(
+      `SELECT d.path, d.title, t.weight, t.events, t.last_at AS "lastAt"
+       FROM trails t JOIN documents d ON d.collection=t.collection
+         AND d.path=CASE WHEN t.path_a=$2 THEN t.path_b ELSE t.path_a END
+       WHERE t.collection=$1 AND (t.path_a=$2 OR t.path_b=$2)
+       ORDER BY t.weight DESC, d.path LIMIT $3`,
+      [this.collection, docPath, k]
+    );
+    return result.rows.map(row => ({ ...row, lastAt: row.lastAt.toISOString() }));
+  }
+
+  /** Resolved links in either direction, within this collection. */
+  async linkedPaths(docPath: string): Promise<Set<string>> {
+    const result = await this.pool.query<{ path: string }>(
+      `SELECT DISTINCT other.path FROM documents me
+       JOIN links l ON l.src_document_id=me.id OR l.target_document_id=me.id
+       JOIN documents other ON other.id=CASE WHEN l.src_document_id=me.id
+         THEN l.target_document_id ELSE l.src_document_id END
+       WHERE me.collection=$1 AND me.path=$2 AND other.collection=$1`,
+      [this.collection, docPath]
+    );
+    return new Set(result.rows.map(row => row.path));
+  }
+
   async hasDocument(docPath: string): Promise<boolean> {
     const res = await this.pool.query(
       'SELECT 1 FROM documents WHERE collection = $1 AND path = $2',
