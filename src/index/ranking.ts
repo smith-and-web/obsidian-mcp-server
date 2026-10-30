@@ -87,9 +87,9 @@ export function capPerNote(hits: FusedHit[], cap: number): FusedHit[] {
   });
 }
 
-export function rankingId(cfg: RankingConfig): string {
+export function rankingId(cfg: RankingConfig, trails?: TrailsConfig): string {
   const prefix = cfg.fusion === 'rrf' ? `rrf-k${cfg.rrfK}` : 'dbsf';
-  return `${prefix}-v${cfg.wVector}-t${cfg.wText}-cap${cfg.perNoteCap}`;
+  return `${prefix}-v${cfg.wVector}-t${cfg.wText}-cap${cfg.perNoteCap}${trails?.mode === 'on' ? `-tr${trails.w}a${trails.anchors}` : ''}`;
 }
 
 export function rankingEnv(cfg: RankingConfig): Record<string, string> {
@@ -134,4 +134,60 @@ export function parseRankingEnv(env: NodeJS.ProcessEnv): RankingConfig {
     throw new Error('Invalid SEARCH_W_VECTOR/SEARCH_W_TEXT: both are 0');
   }
   return config;
+}
+
+export interface TrailsConfig {
+  mode: 'off' | 'shadow' | 'on';
+  w: number;
+  anchors: number;
+}
+
+export const DEFAULT_TRAILS: TrailsConfig = { mode: 'off', w: 0.5, anchors: 3 };
+
+/** Validate trails independently of the existing fusion configuration. */
+export function parseTrailsEnv(env: NodeJS.ProcessEnv): TrailsConfig {
+  const mode = env.SEARCH_TRAILS || 'off';
+  if (mode !== 'off' && mode !== 'shadow' && mode !== 'on')
+    throw new Error(`Invalid SEARCH_TRAILS=${mode}: expected off, shadow or on`);
+  const rawW = env.SEARCH_TRAILS_W;
+  const w = rawW === undefined || rawW === '' ? DEFAULT_TRAILS.w : Number(rawW);
+  if (!Number.isFinite(w) || w <= 0 || w > 10)
+    throw new Error(
+      `Invalid SEARCH_TRAILS_W=${rawW}: expected a number greater than 0 and at most 10`
+    );
+  const rawAnchors = env.SEARCH_TRAILS_ANCHORS;
+  const anchors =
+    rawAnchors === undefined || rawAnchors === '' ? DEFAULT_TRAILS.anchors : Number(rawAnchors);
+  if (!Number.isInteger(anchors) || anchors < 1 || anchors > 8)
+    throw new Error(`Invalid SEARCH_TRAILS_ANCHORS=${rawAnchors}: expected an integer from 1 to 8`);
+  return { mode, w, anchors };
+}
+
+/** Boost existing candidates using trails to the first distinct anchor notes. */
+export function trailsRerank<T extends { documentId: number; fused: number }>(
+  hits: T[],
+  weight: (a: number, b: number) => number,
+  opts: { w: number; anchors: number; rrfK: number }
+): T[] {
+  const documents = [...new Set(hits.map(hit => hit.documentId))];
+  const anchors = documents.slice(0, opts.anchors);
+  const totals = new Map(
+    documents.map(n => [n, anchors.reduce((sum, a) => sum + (a === n ? 0 : weight(a, n)), 0)])
+  );
+  const trailOrder = documents
+    .filter(n => totals.get(n)! > 0)
+    .sort((a, b) => totals.get(b)! - totals.get(a)!);
+  const ranks = new Map(trailOrder.map((n, i) => [n, i + 1]));
+  return hits
+    .map((hit, position) => ({
+      hit: {
+        ...hit,
+        fused:
+          hit.fused +
+          (ranks.has(hit.documentId) ? opts.w / (opts.rrfK + ranks.get(hit.documentId)!) : 0),
+      },
+      position,
+    }))
+    .sort((a, b) => b.hit.fused - a.hit.fused || a.position - b.position)
+    .map(({ hit }) => hit);
 }
