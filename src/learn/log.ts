@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { IndexStore, SessionTransport } from '../index/store.js';
+import type { IndexStore, SessionTransport, SearchShadow } from '../index/store.js';
 import type { LearnConfig } from './config.js';
 import { isSensitive } from './redact.js';
 
@@ -61,6 +61,7 @@ export class LearnLog {
     params: Record<string, unknown>;
     ranker: string;
     results: unknown[];
+    shadow?: SearchShadow | null;
   }): void {
     let redacted = isSensitive(entry.query, this.config.patterns);
     const query = redacted ? null : entry.query;
@@ -91,6 +92,7 @@ export class LearnLog {
         params,
         ranker: entry.ranker,
         results: entry.results,
+        shadow: entry.shadow ?? null,
       }),
       entry.id
     );

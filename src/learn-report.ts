@@ -27,8 +27,10 @@ function reportArguments() {
 
 function printLeaves(value: unknown, prefix = ''): void {
   if (value !== null && typeof value === 'object') {
-    for (const [key, child] of Object.entries(value))
+    for (const [key, child] of Object.entries(value)) {
+      if (key === 'trailsShadow' && !prefix) console.log('Trails shadow');
       printLeaves(child, prefix ? `${prefix}.${key}` : key);
+    }
   } else console.log(`${prefix}: ${value}`);
 }
 

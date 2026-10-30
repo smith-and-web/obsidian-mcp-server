@@ -53,3 +53,34 @@ describe('ranking environment', () => {
     expect(readIndexConfig({})).toBeNull();
   });
 });
+
+describe('trails environment', () => {
+  it('defaults off, keeps ranking config separate and suffixes only enabled ids', async () => {
+    const { DEFAULT_TRAILS, parseTrailsEnv, rankingId } = await import('../src/index/ranking.js');
+    expect(parseTrailsEnv({})).toEqual({ mode: 'off', w: 0.5, anchors: 3 });
+    expect(parseTrailsEnv({ SEARCH_TRAILS: '', SEARCH_TRAILS_W: '', SEARCH_TRAILS_ANCHORS: '' })).toEqual(DEFAULT_TRAILS);
+    const cfg = readIndexConfig({ DATABASE_URL: 'unused', SEARCH_TRAILS: 'shadow' });
+    expect(cfg.trails).toEqual({ ...DEFAULT_TRAILS, mode: 'shadow' });
+    expect(cfg.ranking).toEqual(DEFAULT_RANKING);
+    expect(rankingId(DEFAULT_RANKING, DEFAULT_TRAILS)).toBe(rankingId(DEFAULT_RANKING));
+    expect(rankingId(DEFAULT_RANKING, cfg.trails)).toBe(rankingId(DEFAULT_RANKING));
+    expect(rankingId(DEFAULT_RANKING, { ...cfg.trails, mode: 'on' })).toBe('rrf-k60-v1-t1-cap0-tr0.5a3');
+  });
+  it.each([
+    ['SEARCH_TRAILS', 'on', 'mode', 'on'], ['SEARCH_TRAILS', 'shadow', 'mode', 'shadow'],
+    ['SEARCH_TRAILS_W', '0.001', 'w', 0.001], ['SEARCH_TRAILS_W', '10', 'w', 10],
+    ['SEARCH_TRAILS_ANCHORS', '1', 'anchors', 1], ['SEARCH_TRAILS_ANCHORS', '8', 'anchors', 8],
+  ])('accepts %s=%s', async (key, value, field, expected) => {
+    const { parseTrailsEnv } = await import('../src/index/ranking.js');
+    expect(parseTrailsEnv({ [key]: value })[field]).toBe(expected);
+  });
+  for (const [key, values, allowed] of [
+    ['SEARCH_TRAILS', ['ON', 'other', ' '], 'off, shadow or on'],
+    ['SEARCH_TRAILS_W', ['0', '-1', '10.1', 'NaN', 'Infinity', ' '], 'a number greater than 0 and at most 10'],
+    ['SEARCH_TRAILS_ANCHORS', ['0', '9', '1.5', 'NaN', 'Infinity', ' '], 'an integer from 1 to 8'],
+  ]) it.each(values)(`rejects ${key}=%s`, async value => {
+    const { parseTrailsEnv } = await import('../src/index/ranking.js');
+    expect(() => parseTrailsEnv({ [key]: value })).toThrowError(`Invalid ${key}=${value}: expected ${allowed}`);
+    expect(() => readIndexConfig({ DATABASE_URL: 'unused', [key]: value })).toThrowError(`Invalid ${key}=${value}`);
+  });
+});

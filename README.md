@@ -356,6 +356,9 @@ obsidian-mcp-server/
 | `SEARCH_W_VECTOR` | `1` | Vector-leg weight, finite number 0–10 |
 | `SEARCH_W_TEXT` | `1` | Full-text-leg weight, finite number 0–10; both weights cannot be zero |
 | `SEARCH_PER_NOTE_CAP` | `0` | Maximum chunks per note, integer 0–8; 0 means no cap |
+| `SEARCH_TRAILS` | `off` | Trails ranking mode: `off`, `shadow` or `on` |
+| `SEARCH_TRAILS_W` | `0.5` | Trails boost weight, finite number greater than 0 and at most 10 |
+| `SEARCH_TRAILS_ANCHORS` | `3` | Number of distinct leading candidate notes used as anchors, integer 1–8 |
 | `INDEX_INTERVAL_SECONDS` | `60` | Indexer only: seconds between vault scans |
 | `INDEX_VERBOSE` | `false` | Indexer only: log every file indexed or removed |
 | `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
@@ -880,3 +883,45 @@ A `v*` tag builds and tests it, requires the manifest version to equal the tag w
 The server package and plugin manifest versions must match; add a new `versions.json`
 key for every release, keeping older keys. Tags also trigger the existing image and
 npm publishing workflows.
+
+
+## Trails shadow ranking
+
+Trails rerank existing fused candidates after the per-note cap and before the top-k
+slice. The first distinct candidate notes act as anchors; undirected trail weights
+from those anchors determine an extra reciprocal-rank boost. Candidates are never
+added or dropped. The RRF constant is the configured value for RRF fusion and 60
+for DBSF. Other search tools keep their existing behavior.
+
+`SEARCH_TRAILS=off` is the default and runs no weights query. `shadow` returns the
+same live results, scores and ranker id while logging the alternate top-k order in
+`search_log.shadow`: `{ ranker, results: [{ path, ord, rank }] }`, with 1-based ranks.
+This requires learn logging to be enabled. `on` returns the boosted order and adds
+`-tr<w>a<anchors>` to the ranker id. A weights query failure is logged and returns
+the original order with no shadow object; it cannot abort the search transaction.
+
+`learn-report` includes a **Trails shadow** section (`trailsShadow` in JSON) for
+searches in the report window that have a shadow and at least one linked read.
+`searches` counts those searches, `top1Differs` is the share whose first note
+changes, and `mrrLive` / `mrrShadow` average the reciprocal rank of each search's
+first-read note (zero if absent). Repeated chunks use the note's minimum rank.
+Empty-window rates are `null`, and nonempty rates are rounded to four decimals.
+
+Evaluate trails independently of the existing ranking grid:
+
+```bash
+node dist/eval.js --golden /private/golden.json --out /private/trails-eval.json \
+  --config '{"perNoteCap":2,"trails":{"w":0.5,"anchors":3}}'
+```
+
+The optional `trails` object requires exactly numeric `w` and integer `anchors`
+within the environment ranges. It enables trails only for that candidate run;
+the baseline, grid and configs without trails retain their existing behavior.
+The candidate id receives the same suffix as an enabled server ranker.
+
+**Switch-on rule:** collect at least 30 days of shadow data and 300 qualifying
+searches before considering `on`. Switch only if `mrrShadow >= mrrLive + 0.02`
+and the trails eval above passes the stage 1 diversity rule against a baseline
+run with `--config '{"perNoteCap":2}'` (the production ranking): no regressions,
+no category recall@5 drop, and nDCG@8 not lower. Otherwise keep `shadow` and record
+the measurements. Switching production ranking on is a later decision.

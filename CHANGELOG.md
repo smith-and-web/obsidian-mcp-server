@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-30
+
+### Added
+- Optional trails ranking with off (default), shadow and on modes. Shadow records a boosted candidate order without changing live results; failed weights queries fall back safely.
+- A separate trails option for `brain-eval` and a **Trails shadow** learn-report section comparing first-read reciprocal ranks and top-note differences.
+- MCP Related Notes plugin manifest bumped to 1.14.0; plugin behavior and minimum app version are unchanged.
+
 ## [1.13.0] - 2026-10-30
 
 ### Added

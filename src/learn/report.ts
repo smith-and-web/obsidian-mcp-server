@@ -33,6 +33,12 @@ export interface LearnReport {
     negativeRateAll: number | null;
     negativeRateUser: number | null;
   };
+  trailsShadow: {
+    searches: number;
+    top1Differs: number | null;
+    mrrLive: number | null;
+    mrrShadow: number | null;
+  };
   volumeGate: 'pass' | 'fail';
 }
 
@@ -50,6 +56,7 @@ export async function buildReport(
   const links = await store.learnReportLinks(days);
   const behaviour = await store.learnReportBehaviour(days);
   const feedback = await store.learnReportFeedback(days);
+  const shadow = await store.learnReportTrailsShadow(days);
   const total = searches.reduce((sum, row) => sum + Number(row.n), 0);
   const redacted = searches.reduce((sum, row) => sum + Number(row.redacted), 0);
   const byTool = { 'semantic-search': 0, 'similar-notes': 0, 'search-vault': 0 };
@@ -85,6 +92,12 @@ export async function buildReport(
       bySource: { agent: Number(feedback.agent), user: Number(feedback.user) },
       negativeRateAll: rate(feedback.negative, feedback.total),
       negativeRateUser: rate(feedback.negative_user, feedback.user),
+    },
+    trailsShadow: {
+      searches: Number(shadow.searches),
+      top1Differs: shadow.top1_differs === null ? null : round(Number(shadow.top1_differs)),
+      mrrLive: shadow.mrr_live === null ? null : round(Number(shadow.mrr_live)),
+      mrrShadow: shadow.mrr_shadow === null ? null : round(Number(shadow.mrr_shadow)),
     },
     volumeGate: linkedSemanticPerDay >= 30 ? 'pass' : 'fail',
   };

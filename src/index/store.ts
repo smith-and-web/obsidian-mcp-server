@@ -16,9 +16,32 @@ import pg from 'pg';
 import pgvector from 'pgvector/pg';
 import type { Chunk } from './chunker.js';
 import type { Frontmatter } from '../types/index.js';
-import { DEFAULT_RANKING, fuse, capPerNote, type RankingConfig, type LegHit } from './ranking.js';
+import {
+  DEFAULT_RANKING,
+  fuse,
+  capPerNote,
+  type RankingConfig,
+  type LegHit,
+  type TrailsConfig,
+  trailsRerank,
+  rankingId,
+} from './ranking.js';
 
 const { Pool } = pg;
+const POOL_SIZE = 4;
+
+export interface SearchShadow {
+  ranker: string;
+  results: { path: string; ord: number; rank: number }[];
+}
+
+export type SearchOptions = {
+  k?: number;
+  mode?: 'hybrid' | 'vector' | 'text';
+  candidates?: number;
+  ranking?: RankingConfig;
+  trails?: TrailsConfig;
+} & SearchFilters;
 
 export const SCHEMA_VERSION = '1';
 
@@ -175,6 +198,8 @@ function unlinked(a: string, b: string): string {
 
 export class IndexStore {
   private pool: pg.Pool;
+  private trailsSearches = 0;
+  private trailsWaiters: (() => void)[] = [];
   readonly collection: string;
 
   constructor(options: IndexStoreOptions) {
@@ -183,7 +208,7 @@ export class IndexStore {
       .join(' ');
     this.pool = new Pool({
       connectionString: options.connectionString,
-      max: 4,
+      max: POOL_SIZE,
       ...(opts ? { options: opts } : {}),
     });
     this.collection = options.collection;
@@ -996,11 +1021,12 @@ FROM scores;`,
     params: Record<string, unknown>;
     ranker: string;
     results: unknown[];
+    shadow?: SearchShadow | null;
   }): Promise<void> {
     await this.pool.query(
       `INSERT INTO search_log
-       (id, collection, session_id, client_name, tool, query, redacted, query_embedding, params, ranker, results)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, $10, $11::jsonb)`,
+       (id, collection, session_id, client_name, tool, query, redacted, query_embedding, params, ranker, results, shadow)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, $10, $11::jsonb, $12::jsonb)`,
       [
         row.id,
         this.collection,
@@ -1013,6 +1039,7 @@ FROM scores;`,
         JSON.stringify(row.params),
         row.ranker,
         JSON.stringify(row.results),
+        row.shadow === undefined || row.shadow === null ? null : JSON.stringify(row.shadow),
       ]
     );
   }
@@ -1190,6 +1217,34 @@ FROM scores;`,
          count(*) FILTER (WHERE rank <= 1) AS at1, count(*) FILTER (WHERE rank <= 3) AS at3,
          count(*) FILTER (WHERE rank <= 8) AS at8, count(*) FILTER (WHERE rank IS NULL) AS misses
        FROM reads`,
+      [this.collection, days]
+    );
+    return result.rows[0];
+  }
+
+  /** Compare live and shadow ranks against the first linked note read per search. */
+  async learnReportTrailsShadow(days: number) {
+    const result = await this.pool.query<{
+      searches: string;
+      top1_differs: number | null;
+      mrr_live: number | null;
+      mrr_shadow: number | null;
+    }>(
+      `WITH qualifying AS (
+         SELECT s.results, s.shadow, first_read.path
+         FROM search_log s
+         JOIN LATERAL (
+           SELECT r.path FROM note_reads r
+           WHERE r.request_id = s.id AND r.collection = s.collection
+           ORDER BY r.at, r.id LIMIT 1
+         ) first_read ON true
+         WHERE s.collection = $1 AND s.at >= now() - make_interval(days => $2)
+           AND s.shadow IS NOT NULL
+       ) SELECT count(*) AS searches,
+         avg(CASE WHEN results->0->>'path' IS DISTINCT FROM shadow->'results'->0->>'path' THEN 1.0 ELSE 0.0 END)::float8 AS top1_differs,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(results) hit WHERE hit->>'path' = path), 0))::float8 AS mrr_live,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(shadow->'results') hit WHERE hit->>'path' = path), 0))::float8 AS mrr_shadow
+       FROM qualifying`,
       [this.collection, days]
     );
     return result.rows[0];
@@ -1533,24 +1588,49 @@ FROM scores;`,
   async search(
     queryEmbedding: number[] | null,
     queryText: string,
-    options: {
-      k?: number;
-      mode?: 'hybrid' | 'vector' | 'text';
-      candidates?: number;
-      ranking?: RankingConfig;
-    } & SearchFilters = {}
+    options: SearchOptions = {}
   ): Promise<SearchHit[]> {
+    return (await this.searchRanked(queryEmbedding, queryText, options)).results;
+  }
+
+  /** Keep one pool slot available for weights while enabled searches hold transactions. */
+  private async reserveTrailsSearch(): Promise<() => void> {
+    if (this.trailsSearches >= POOL_SIZE - 1)
+      await new Promise<void>(resolve => this.trailsWaiters.push(resolve));
+    else this.trailsSearches++;
+    return () => {
+      const next = this.trailsWaiters.shift();
+      if (next) next();
+      else this.trailsSearches--;
+    };
+  }
+
+  async searchRanked(
+    queryEmbedding: number[] | null,
+    queryText: string,
+    options: SearchOptions = {}
+  ): Promise<{ results: SearchHit[]; shadow: SearchShadow | null }> {
     const k = Math.max(1, Math.min(options.k ?? 8, 50));
     const candidates = Math.max(k, Math.min(options.candidates ?? 40, 200));
     const mode = options.mode ?? 'hybrid';
     const ranking = options.ranking ?? DEFAULT_RANKING;
     const useVector = mode !== 'text' && queryEmbedding !== null;
     const useText = mode !== 'vector' && queryText.trim().length > 0;
-    if (!useVector && !useText) return [];
+    if (!useVector && !useText) return { results: [], shadow: null };
 
     const params: unknown[] = [this.collection];
     const filter = this.filterSql(options, params);
-    const client = await this.pool.connect();
+    const releaseTrailsSlot =
+      options.trails && options.trails.mode !== 'off'
+        ? await this.reserveTrailsSearch()
+        : undefined;
+    let client: pg.PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch (err) {
+      releaseTrailsSlot?.();
+      throw err;
+    }
     type LegRow = { id: string; document_id: string; ord: number; score: number; rn: string };
     const toLeg = (rows: LegRow[]): LegHit[] =>
       rows.map(r => ({
@@ -1599,7 +1679,29 @@ FROM scores;`,
         );
         text = toLeg(res.rows);
       }
-      const hits = capPerNote(fuse(vector, text, ranking), ranking.perNoteCap).slice(0, k);
+      const candidatesList = capPerNote(fuse(vector, text, ranking), ranking.perNoteCap);
+      let live = candidatesList;
+      let shadowHits: typeof candidatesList | null = null;
+      const trails = options.trails;
+      if (trails && trails.mode !== 'off') {
+        try {
+          const weights = await this.trailWeights([
+            ...new Set(candidatesList.map(hit => hit.documentId)),
+          ]);
+          const reranked = trailsRerank(candidatesList, (a, b) => weights.get(`${a}:${b}`) ?? 0, {
+            w: trails.w,
+            anchors: trails.anchors,
+            rrfK: ranking.fusion === 'rrf' ? ranking.rrfK : 60,
+          });
+          if (trails.mode === 'on') live = reranked;
+          else shadowHits = reranked.slice(0, k);
+        } catch (err) {
+          console.error('trails-rerank:', err instanceof Error ? err.message : String(err));
+        }
+      }
+      const hits = live.slice(0, k);
+      const detailIds = [...new Set([...hits, ...(shadowHits ?? [])].map(hit => hit.id))];
+      let shadow: SearchShadow | null = null;
       let results: SearchHit[] = [];
       if (hits.length) {
         const details = await client.query<{
@@ -1611,9 +1713,18 @@ FROM scores;`,
           content: string;
         }>(
           `SELECT c.id, d.path, d.title, c.heading_path, c.ord, c.content FROM chunks c JOIN documents d ON d.id = c.document_id WHERE c.id = ANY($1::bigint[])`,
-          [hits.map(h => h.id)]
+          [detailIds]
         );
         const byId = new Map(details.rows.map(r => [Number(r.id), r]));
+        if (shadowHits)
+          shadow = {
+            ranker: rankingId(ranking, { ...trails!, mode: 'on' }),
+            results: shadowHits.map((hit, i) => ({
+              path: byId.get(hit.id)!.path,
+              ord: hit.ord,
+              rank: i + 1,
+            })),
+          };
         results = hits.map(hit => {
           const row = byId.get(hit.id)!;
           return {
@@ -1628,8 +1739,10 @@ FROM scores;`,
           };
         });
       }
+      if (shadowHits && !shadow)
+        shadow = { ranker: rankingId(ranking, { ...trails!, mode: 'on' }), results: [] };
       await client.query('COMMIT');
-      return results;
+      return { results, shadow };
     } catch (err) {
       try {
         await client.query('ROLLBACK');
@@ -1639,9 +1752,31 @@ FROM scores;`,
       throw err;
     } finally {
       // A failed ROLLBACK means the connection is suspect; destroy it rather than pool it.
-      if (releaseErr) client.release(releaseErr);
-      else client.release();
+      try {
+        if (releaseErr) client.release(releaseErr);
+        else client.release();
+      } finally {
+        releaseTrailsSlot?.();
+      }
     }
+  }
+
+  /** Fetch undirected candidate edges outside the search transaction. */
+  async trailWeights(ids: number[]): Promise<Map<string, number>> {
+    const rows = await this.pool.query<{ a: string; b: string; weight: number }>(
+      `SELECT da.id AS a, db.id AS b, t.weight
+       FROM trails t
+       JOIN documents da ON da.collection = t.collection AND da.path = t.path_a
+       JOIN documents db ON db.collection = t.collection AND db.path = t.path_b
+       WHERE t.collection = $1 AND da.id = ANY($2::bigint[]) AND db.id = ANY($2::bigint[])`,
+      [this.collection, ids]
+    );
+    const weights = new Map<string, number>();
+    for (const row of rows.rows) {
+      weights.set(`${row.a}:${row.b}`, Number(row.weight));
+      weights.set(`${row.b}:${row.a}`, Number(row.weight));
+    }
+    return weights;
   }
 
   /**

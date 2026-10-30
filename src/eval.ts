@@ -7,6 +7,8 @@ import { IndexStore } from './index/store.js';
 import {
   DEFAULT_RANKING,
   parseRankingEnv,
+  parseTrailsEnv,
+  type TrailsConfig,
   rankingEnv,
   rankingId,
   type RankingConfig,
@@ -40,10 +42,36 @@ function argumentsForEval() {
     if (!values.golden || !values.out || !!values.grid === (values.config !== undefined))
       throw new Error(USAGE);
     let ranking: RankingConfig | undefined;
+    let trails: TrailsConfig | undefined;
     if (values.config !== undefined) {
       const obj: unknown = JSON.parse(values.config);
       if (obj === null || typeof obj !== 'object' || Array.isArray(obj))
         throw new Error('--config must be a JSON object');
+      const fields = obj as Record<string, unknown>;
+      if (Object.hasOwn(fields, 'trails')) {
+        const value = fields.trails;
+        delete fields.trails;
+        if (value === null || typeof value !== 'object' || Array.isArray(value))
+          throw new Error('Invalid --config trails: expected an object with w and anchors');
+        const options = value as Record<string, unknown>;
+        if (
+          Object.keys(options).length !== 2 ||
+          typeof options.w !== 'number' ||
+          typeof options.anchors !== 'number'
+        )
+          throw new Error('Invalid --config trails: expected numeric w and anchors only');
+        try {
+          trails = parseTrailsEnv({
+            SEARCH_TRAILS: 'on',
+            SEARCH_TRAILS_W: String(options.w),
+            SEARCH_TRAILS_ANCHORS: String(options.anchors),
+          });
+        } catch (err) {
+          throw new Error(
+            `Invalid --config trails: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       for (const [key, value] of Object.entries(obj)) {
         if (
           !Object.hasOwn(DEFAULT_RANKING, key) ||
@@ -54,7 +82,7 @@ function argumentsForEval() {
       }
       ranking = parseRankingEnv(rankingEnv({ ...DEFAULT_RANKING, ...obj }));
     }
-    return { golden: values.golden, out: values.out, grid: values.grid, ranking };
+    return { golden: values.golden, out: values.out, grid: values.grid, ranking, trails };
   } catch (err) {
     throw new InputError(`${err instanceof Error ? err.message : String(err)}\n${USAGE}`);
   }
@@ -103,6 +131,9 @@ async function main(): Promise<void> {
     SEARCH_W_VECTOR: '',
     SEARCH_W_TEXT: '',
     SEARCH_PER_NOTE_CAP: '',
+    SEARCH_TRAILS: '',
+    SEARCH_TRAILS_W: '',
+    SEARCH_TRAILS_ANCHORS: '',
   });
   if (!config) throw new InputError('DATABASE_URL is required');
   const embedder = await createEmbedder(config.embedder);
@@ -126,23 +157,29 @@ async function main(): Promise<void> {
     for (const query of golden.queries)
       vectors.push((await embedder.embed([query.query.trim()]))[0]);
     const baselineId = rankingId(DEFAULT_RANKING);
-    const configs = args.grid
-      ? GRID
-      : [DEFAULT_RANKING, ...(rankingId(args.ranking!) === baselineId ? [] : [args.ranking!])];
+    const configs: { ranking: RankingConfig; trails?: TrailsConfig }[] = args.grid
+      ? GRID.map(ranking => ({ ranking }))
+      : [
+          { ranking: DEFAULT_RANKING },
+          ...(args.trails || rankingId(args.ranking!) !== baselineId
+            ? [{ ranking: args.ranking!, trails: args.trails }]
+            : []),
+        ];
     const results: Evaluation[] = [];
-    for (const ranking of configs) {
+    for (const { ranking, trails } of configs) {
       const perQuery = [];
       for (const [i, query] of golden.queries.entries()) {
-        const hits = await store.search(vectors[i], query.query.trim(), {
+        const { results: hits } = await store.searchRanked(vectors[i], query.query.trim(), {
           k: 8,
           mode: 'hybrid',
           ranking,
+          trails,
         });
         const notes = [...new Set(hits.map(hit => hit.path))];
         perQuery.push({ id: query.id, notes, ...scoreQuery(notes, query.expected) });
       }
       const result: Evaluation = {
-        id: rankingId(ranking),
+        id: rankingId(ranking, trails),
         config: ranking,
         metrics: aggregate(perQuery, golden),
         perQuery: perQuery.map(({ id, firstRank, notes }) => ({ id, firstRank, notes })),
