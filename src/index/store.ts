@@ -281,6 +281,205 @@ export class IndexStore {
     await this.ensureMaintenanceSchema();
   }
 
+  private trailsClient: pg.PoolClient | null = null;
+
+  async trailsLock(): Promise<boolean> {
+    if (this.trailsClient) return false;
+    const client = await this.pool.connect();
+    try {
+      const r = await client.query(
+        "SELECT pg_try_advisory_lock(hashtext('brain-trails:' || $1)) AS locked",
+        [this.collection]
+      );
+      if (r.rows[0].locked) {
+        this.trailsClient = client;
+        return true;
+      }
+      client.release();
+      return false;
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+  }
+  async trailsUnlock(): Promise<void> {
+    const client = this.trailsClient;
+    if (!client) return;
+    this.trailsClient = null;
+    try {
+      await client.query("SELECT pg_advisory_unlock(hashtext('brain-trails:' || $1))", [
+        this.collection,
+      ]);
+      client.release();
+    } catch (err) {
+      client.release(err as Error);
+      throw err;
+    }
+  }
+  async startTrailsRun(): Promise<number> {
+    const r = await this.pool.query('INSERT INTO trails_runs(collection) VALUES($1) RETURNING id', [
+      this.collection,
+    ]);
+    return Number(r.rows[0].id);
+  }
+  async finishTrailsRun(
+    id: number,
+    metrics: Record<string, unknown>,
+    error: string | null
+  ): Promise<void> {
+    await this.pool.query(
+      'UPDATE trails_runs SET finished_at=now(), metrics=$2, error_text=$3 WHERE id=$1 AND collection=$4',
+      [id, metrics, error, this.collection]
+    );
+  }
+  async rebuildTrailsAndHeat(opts: {
+    now: Date;
+    windowDays: number;
+    halfLifeDays: number;
+    tz: string;
+    thresholds: number[];
+    commit: boolean;
+  }): Promise<{ edges: number; buckets: number[] }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const params = [this.collection, opts.now, opts.windowDays, opts.halfLifeDays, opts.tz];
+      await client.query('DELETE FROM trails WHERE collection=$1', [this.collection]);
+      await client.query(
+        `INSERT INTO trails (collection, path_a, path_b, weight, events, last_at, computed_at)
+WITH docs AS (
+  SELECT path FROM documents WHERE collection = $1
+),
+raw AS (
+  SELECT 'q:' || r.request_id::text || ':' || ((r.at AT TIME ZONE $5)::date)::text AS unit,
+         coalesce(r.session_id, 'q:' || r.request_id::text) AS sk,
+         1.0::float8 AS w, r.path, r.at
+  FROM note_reads r
+  WHERE r.collection = $1 AND r.request_id IS NOT NULL
+    AND r.at >= $2::timestamptz - make_interval(days => $3)
+  UNION ALL
+  SELECT 's:' || r.session_id || ':' || ((r.at AT TIME ZONE $5)::date)::text,
+         r.session_id, 0.5, r.path, r.at
+  FROM note_reads r
+  WHERE r.collection = $1 AND r.request_id IS NULL AND r.session_id IS NOT NULL
+    AND r.at >= $2::timestamptz - make_interval(days => $3)
+  UNION ALL
+  SELECT 'f:' || f.id::text,
+         coalesce(s.session_id, 'q:' || s.id::text),
+         CASE f.source WHEN 'user' THEN 3.0 ELSE 2.0 END,
+         CASE WHEN right(ltrim(p.path, '/'), 3) = '.md' THEN ltrim(p.path, '/') ELSE ltrim(p.path, '/') || '.md' END,
+         f.at
+  FROM search_feedback f
+  JOIN search_log s ON s.id = f.search_id
+  CROSS JOIN LATERAL unnest(f.used_paths) AS p(path)
+  WHERE s.collection = $1 AND f.rating <> 'negative'
+    AND f.at >= $2::timestamptz - make_interval(days => $3)
+),
+units AS (
+  SELECT unit, sk, max(w) AS w, path, max(at) AS at
+  FROM raw WHERE path IN (SELECT path FROM docs)
+  GROUP BY unit, sk, path
+),
+pair_days AS (
+  SELECT a.sk, (greatest(a.at, b.at) AT TIME ZONE $5)::date AS day,
+         a.path AS path_a, b.path AS path_b,
+         max(a.w) AS w, max(greatest(a.at, b.at)) AS at
+  FROM units a JOIN units b ON a.unit = b.unit AND a.path < b.path
+  GROUP BY 1, 2, 3, 4
+)
+SELECT $1, path_a, path_b,
+       sum(w * power(0.5, extract(epoch FROM ($2::timestamptz - at)) / 86400.0 / $4))::real,
+       count(*)::int, max(at), $2::timestamptz
+FROM pair_days
+GROUP BY path_a, path_b;`,
+        params
+      );
+      await client.query('DELETE FROM note_heat WHERE collection=$1', [this.collection]);
+      await client.query(
+        `INSERT INTO note_heat (collection, path, score, bucket, computed_at)
+WITH docs AS (SELECT path FROM documents WHERE collection = $1),
+raw AS (
+  SELECT coalesce(r.session_id, 'q:' || r.request_id::text, 'r:' || r.id::text) AS sk,
+         1.0::float8 AS w, r.path, r.at
+  FROM note_reads r
+  WHERE r.collection = $1 AND r.at >= $2::timestamptz - make_interval(days => $3)
+  UNION ALL
+  SELECT coalesce(s.session_id, 'q:' || s.id::text),
+         CASE f.source WHEN 'user' THEN 3.0 ELSE 2.0 END,
+         CASE WHEN right(ltrim(p.path, '/'), 3) = '.md' THEN ltrim(p.path, '/') ELSE ltrim(p.path, '/') || '.md' END,
+         f.at
+  FROM search_feedback f
+  JOIN search_log s ON s.id = f.search_id
+  CROSS JOIN LATERAL unnest(f.used_paths) AS p(path)
+  WHERE s.collection = $1 AND f.rating <> 'negative'
+    AND f.at >= $2::timestamptz - make_interval(days => $3)
+),
+days AS (
+  SELECT path, sk, (at AT TIME ZONE $5)::date AS day, max(w) AS w, max(at) AS at
+  FROM raw WHERE path IN (SELECT path FROM docs)
+  GROUP BY 1, 2, 3
+),
+scores AS (
+  SELECT path, sum(w * power(0.5, extract(epoch FROM ($2::timestamptz - at)) / 86400.0 / $4)) AS score
+  FROM days GROUP BY path
+)
+SELECT $1, path, score::real, width_bucket(score, $6::float8[])::smallint, $2::timestamptz
+FROM scores;`,
+        [...params, opts.thresholds]
+      );
+      const edges = Number(
+        (await client.query('SELECT count(*) FROM trails WHERE collection=$1', [this.collection]))
+          .rows[0].count
+      );
+      const rows = (
+        await client.query(
+          'SELECT bucket, count(*)::int AS n FROM note_heat WHERE collection=$1 GROUP BY bucket',
+          [this.collection]
+        )
+      ).rows;
+      const buckets = Array<number>(6).fill(0);
+      for (const row of rows) buckets[row.bucket] = row.n;
+      await client.query(opts.commit ? 'COMMIT' : 'ROLLBACK');
+      client.release();
+      return { edges, buckets };
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } finally {
+        client.release(err as Error);
+      }
+      throw err;
+    }
+  }
+  async heatCandidates(
+    types: string[],
+    clear: boolean
+  ): Promise<{ path: string; bucket: number }[]> {
+    return (
+      await this.pool.query(
+        `SELECT d.path, coalesce(h.bucket,0)::int AS bucket FROM documents d
+      LEFT JOIN note_heat h ON h.collection=d.collection AND h.path=d.path
+      WHERE d.collection=$1 AND ($3::boolean OR d.frontmatter->>'type'=ANY($2)) ORDER BY d.path`,
+        [this.collection, types, clear]
+      )
+    ).rows;
+  }
+  async trailEdges(minWeight: number): Promise<{ pathA: string; pathB: string; weight: number }[]> {
+    return (
+      await this.pool.query(
+        'SELECT path_a AS "pathA", path_b AS "pathB", weight FROM trails WHERE collection=$1 AND weight >= $2 ORDER BY path_a, path_b',
+        [this.collection, minWeight]
+      )
+    ).rows;
+  }
+  async heatScores(): Promise<{ path: string; score: number }[]> {
+    return (
+      await this.pool.query('SELECT path, score FROM note_heat WHERE collection=$1', [
+        this.collection,
+      ])
+    ).rows;
+  }
+
   async recordDocHistory(client: pg.PoolClient, documentId: number): Promise<void> {
     await client.query(
       `INSERT INTO doc_history (document_id, content_sha256, summary, summary_body_cosine)

@@ -32,3 +32,26 @@ describe('complete YAML field guard', () => {
     expect(sameExceptKey(before,before.replace('up: body','up: changed'),'up')).toBe(false);
   });
 });
+
+import { writeHeat } from '../src/trails/heat.js';
+const config = () => ({ vaultPath:root, heatTypes:['reference'],heatMinAgeMinutes:30,heatMaxWrites:400 });
+describe('heat writer',()=>{
+ it('writes numbers, skips unchanged and absent zero, and clears every type',async()=>{
+  const text='---\ntitle: X\nupdated: "2026-10-01"\n---\nBody\n';const file=await fixture(text);
+  const store={heatCandidates:async(types,clear)=>{expect(clear ? true : types.includes('reference')).toBe(true);return [{path:'x.md',bucket:3}];}};
+  expect((await writeHeat(store,config(),{now,clear:false})).heatWrites).toBe(1);
+  expect((await writeHeat(store,config(),{now:new Date('2027-01-01'),clear:false})).heatUnchanged).toBe(1);
+  expect((await writeHeat(store,{...config(),heatTypes:[]},{now,clear:true})).heatWrites).toBe(1);expect(await fs.readFile(file,'utf8')).toBe(text);
+  const stat=await fs.stat(file);expect((await writeHeat({heatCandidates:async()=>[{path:'x.md',bucket:0}]},config(),{now,clear:false})).heatUnchanged).toBe(1);expect((await fs.stat(file)).mtimeMs).toBe(stat.mtimeMs);
+ });
+ it('skips recent files, reports invalid/missing and checks round trips without writes',async()=>{
+  const file=await fixture('---\ntitle: X\n---\n');await fs.utimes(file,new Date(now-60000),new Date(now-60000));const store={heatCandidates:async()=>[{path:'x.md',bucket:2}]};expect((await writeHeat(store,config(),{now,clear:false})).heatSkippedRecent).toBe(1);
+  await fs.writeFile(file,'---\ntitle: X\ntags:\n    - one\n---\n');const before=await fs.readFile(file,'utf8');expect((await writeHeat(store,config(),{now,clear:false,checkOnly:true})).roundTripFailures).toEqual(['x.md']);expect(await fs.readFile(file,'utf8')).toBe(before);
+  await fs.writeFile(file,'---\ntitle: a: b\n---\n');expect((await writeHeat(store,config(),{now,clear:false})).heatSkippedInvalid).toBe(1);
+  await fs.rm(file);expect((await writeHeat(store,config(),{now,clear:false})).heatSkippedMissing).toBe(1);
+ });
+ it('stops after N successful writes',async()=>{
+  await fixture('---\ntitle: X\n---\n');await fs.copyFile(path.join(root,'x.md'),path.join(root,'y.md'));await fs.utimes(path.join(root,'y.md'),new Date(0),new Date(0));
+  const store={heatCandidates:async()=>[{path:'x.md',bucket:1},{path:'y.md',bucket:2}]};const result=await writeHeat(store,{...config(),heatMaxWrites:1},{now,clear:false});expect(result.heatWrites).toBe(1);expect(result.heatCapped).toBe(1);expect(await fs.readFile(path.join(root,'y.md'),'utf8')).not.toContain('heat:');
+ });
+});

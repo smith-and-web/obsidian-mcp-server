@@ -21,7 +21,8 @@
     "index:once": "node dist/indexer.js --once --verbose",
     "eval": "node dist/eval.js",
     "learn-report": "node dist/learn-report.js",
-    "maintain": "node dist/maintain.js"
+    "maintain": "node dist/maintain.js",
+    "trails": "node dist/trails.js"
   },
   "keywords": [
     "obsidian",
