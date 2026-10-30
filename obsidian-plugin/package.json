@@ -1,0 +1,18 @@
+{
+  "name": "mcp-related-notes",
+  "version": "1.13.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "test": "vitest run",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "esbuild": "0.28.2",
+    "obsidian": "1.14.4",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}

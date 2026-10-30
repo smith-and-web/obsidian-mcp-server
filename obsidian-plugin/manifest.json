@@ -1,0 +1,9 @@
+{
+  "id": "mcp-related-notes",
+  "name": "MCP Related Notes",
+  "version": "1.13.0",
+  "minAppVersion": "1.13.0",
+  "description": "Related notes and read-together trails from an obsidian-mcp-server index.",
+  "author": "smith-and-web",
+  "isDesktopOnly": true
+}

@@ -1,0 +1,15 @@
+.mcp-related-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+.mcp-related-heat {
+  border-radius: 0.4em;
+  padding: 0.1em 0.4em;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.workspace-leaf-content[data-type="mcp-related-notes"] li button {
+  margin-left: 0.5em;
+}
