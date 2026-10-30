@@ -1,6 +1,6 @@
 {
   "name": "@smith-and-web/obsidian-mcp-server",
-  "version": "1.11.2",
+  "version": "1.12.0",
   "description": "A Model Context Protocol (MCP) server for Obsidian vault management via SSE transport, with optional pgvector-backed semantic search",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,7 +21,9 @@
     "index:once": "node dist/indexer.js --once --verbose",
     "eval": "node dist/eval.js",
     "learn-report": "node dist/learn-report.js",
-    "maintain": "node dist/maintain.js"
+    "maintain": "node dist/maintain.js",
+    "trails": "node dist/trails.js",
+    "backfill-up": "node dist/backfill-up.js"
   },
   "keywords": [
     "obsidian",

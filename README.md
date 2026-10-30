@@ -774,7 +774,20 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 Run `node dist/maintain.js` (or `npm run maintain`) from the same image as the server, with `DATABASE_URL`, `INDEX_COLLECTION`, `VAULT_PATH` and `MAINTAIN_REPORT_DIR` configured. Schedule it weekly with your host's scheduler. `--dry` prints candidate counts and hygiene metrics without recording a run or writing a report. The index must already exist.
 
-Seven deterministic checks find missing links, unlinked mentions, uniquely repairable unresolved links, missing `index` or `aliases` frontmatter, stale summaries, near-duplicates and stale project or area hubs. Notes with type `journal` or `inbox` are excluded as targets. Notes under `Journal/` get no link suggestions in either direction. An unlinked mention counts only in a note's prose (not its frontmatter, first H1, code, wikilinks or markdown links) and only as a whole word, case-insensitively, with hyphens part of the word; the worker reads the source note from `VAULT_PATH` to check. Near-duplicate pairs skip notes that already link to each other and pairs of `plan` notes. The indexer records summary/body cosine history when content changes, and maintenance backfills baselines for older notes. Search ranking stays unchanged, and maintenance never reads learn tables.
+Eight deterministic checks find missing links, unlinked mentions, uniquely repairable unresolved links, missing `index` or `aliases` frontmatter, stale summaries, near-duplicates, stale project or area hubs, and unlinked co-read pairs. Notes with type `journal` or `inbox` are excluded as targets. An unlinked mention counts only in a note's prose (not its frontmatter, first H1, code, wikilinks or markdown links) and only as a whole word, case-insensitively, with hyphens part of the word; the worker reads the source note from `VAULT_PATH` to check. Near-duplicate pairs skip notes that already link to each other and pairs of `plan` notes. The indexer records summary/body cosine history when content changes, and maintenance backfills baselines for older notes. Search ranking stays unchanged; co-read findings use derived trails.
+
+| Class | Purpose | Graduable |
+|---|---|---|
+| `link-related` | Similar notes missing a link | yes |
+| `link-mention` | Unlinked prose mentions | yes |
+| `link-repair` | Uniquely repairable unresolved links | yes |
+| `fm-missing` | Missing index or aliases keys | yes |
+| `summary-refresh` | Summary/body similarity fell | yes |
+| `merge-duplicate` | Near-duplicate notes | no |
+| `hub-review` | Stale hubs | no |
+| `link-coread` | Unlinked pairs above both trails thresholds | yes |
+
+`MAINTAIN_COREAD_MIN_WEIGHT` defaults to `1.5` (number greater than 0, at most 1000); `MAINTAIN_COREAD_MIN_EVENTS` defaults to `2` (integer 1–1000). Empty trails produce no findings. Existing body and configured frontmatter links suppress co-read suggestions in either direction.
 
 Each ISO week produces `Brain maintenance YYYY-Www.md` in the configured output directory. Reports are draft notes with `index: false`, stable finding ids, accept/reject checkboxes, trends and acceptance counts. They stay out of search and the link graph. A rerun parses ticks first and atomically replaces only that week's report; moved reports are still discovered by their `maintenance_report` frontmatter.
 
@@ -783,3 +796,38 @@ Tick one checkbox per finding, or explicitly ask the assistant to call `maintena
 This stage is report-only: accepting records a decision and changes no note. Apply accepted findings yourself. Near-duplicate merges and hub reviews remain report-only permanently. The worker never edits existing notes; its only vault write is its own report.
 
 `recommend-notes` takes 1–10 `positive` paths, up to 10 `negative` paths, an optional integer `k` (1–50), `type` and `directory`. It excludes the examples. `best_score` compares the nearest positive and negative; `average_vector` uses the positive mean, moved away from the negative mean when present. Neither tool requires learn logging; sensitive decision reasons are stored as null using the active redaction patterns or the built-ins.
+
+
+## Trails
+
+Run `npm run trails` (`node dist/trails.js`) with `DATABASE_URL` and `VAULT_PATH` set. The index must already exist. Scheduling the nightly run is the host's job. `--dry` rebuilds in a rolled-back transaction and reports edge counts, all six heat buckets, and YAML round-trip failures without writing files or a run row. `--clear-heat` removes heat from every indexed document regardless of type; it cannot be combined with `--dry`.
+
+Edges count the strongest event per session and local day: search reads 1.0, untied session reads 0.5, agent feedback 2.0, user feedback 3.0. Negative feedback is excluded. Weights decay over the configured window. Heat sums distinct session-days per note and maps the score to buckets 0–5. Unread notes have bucket 0. Heat writes never bump `updated`, never add an absent `heat: 0`, and skip recent, raced, invalid or restyled notes. The write cap and master switch bound changes. The generated note is a Breadcrumbs list note; an existing file without its ownership marker is never overwritten.
+
+| Variable | Default | Rule / purpose |
+|---|---|---|
+| `INDEX_COLLECTION` | `default` | Collection shared with the indexer |
+| `TRAILS_TZ` | `UTC` | IANA zone for session-days and timestamps |
+| `TRAILS_WINDOW_DAYS` | `180` | Integer 7–3650 |
+| `TRAILS_HALF_LIFE_DAYS` | `30` | Integer 1–365 |
+| `TRAILS_HEAT_THRESHOLDS` | `1,3,6,12,24` | Five strictly ascending positive boundaries |
+| `TRAILS_HEAT_TYPES` | empty | Comma-separated note types; empty writes none |
+| `TRAILS_WRITE_HEAT` | `false` | Strict `true` or `false` master switch |
+| `TRAILS_HEAT_MIN_AGE_MINUTES` | `30` | Integer 0–1440 |
+| `TRAILS_HEAT_MAX_WRITES` | `400` | Integer 1–5000 |
+| `TRAILS_NOTE_PATH` | empty | Vault-relative `.md` path without `..`; empty disables note |
+| `TRAILS_NOTE_PER_NOTE` | `5` | Integer 1–20 partners per source |
+| `TRAILS_NOTE_MAX_SOURCES` | `60` | Integer 1–500 |
+| `TRAILS_NOTE_MIN_WEIGHT` | `1.0` | Number 0–1000 |
+
+Set `INDEX_FRONTMATTER_LINK_KEYS=up,down,same,next,prev` to index typed frontmatter wikilinks like body links. Set `INDEX_VOLATILE_KEYS=heat` to ignore heat-only changes for embedding and history. Both default to empty; comma-separated keys are trimmed, empty items dropped, and each must contain only letters, digits, `_` or `-`. Invalid keys refuse startup. These settings apply to scans and explicit reindexing.
+
+`documents.frontmatter` keeps the old value of a volatile key until other note content changes. Heat consumers read `note_heat`, never the potentially stale frontmatter value.
+
+### Backfill hub links
+
+`npm run backfill-up -- --plan /tmp/up-plan.json` generates a reviewable plan without editing notes. It chooses hubs already linking to each child, ordered by centroid similarity then path, and skips children already carrying the field. Basename ambiguity is checked against every markdown file in the vault, including unindexed notes. Non-round-tripping YAML is listed under `reformat`.
+
+Review the plan before `npm run backfill-up -- --plan /tmp/up-plan.json --apply`. Changed checksums are skipped; writes add a quoted flow list without changing `updated` or unrelated text. `--revert` removes only a value matching the plan, including a list restyled into block form. Keep the plan for rollback.
+
+Options: required `--plan <file>`, exclusive `--apply` / `--revert` (default dry), `--field <key>` (default `up`), `--hub-types <list>` (default `project,area`), `--child-types <list>` (default `reference,decision,plan`), and `--max <1-10>` (default `3`). Environment: `DATABASE_URL`, `INDEX_COLLECTION`, `VAULT_PATH`. Both CLIs exit 2 for usage/configuration errors, 1 for runtime failures, and 0 on success.

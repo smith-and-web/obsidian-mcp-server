@@ -23,6 +23,7 @@ export interface Chunk {
 }
 
 export interface ChunkerOptions {
+  frontmatterLinkKeys?: string[];
   /** Target maximum tokens per chunk (default 800). */
   maxTokens?: number;
   /** Overlap in tokens when a long section is split (default 100). */
@@ -42,6 +43,7 @@ export interface ChunkedNote {
 }
 
 const DEFAULTS: Required<ChunkerOptions> = {
+  frontmatterLinkKeys: [],
   maxTokens: 800,
   overlapTokens: 100,
   maxHeadingLevel: 3,
@@ -84,6 +86,21 @@ export function extractWikilinks(body: string): string[] {
     if (target) out.add(target);
   }
   return Array.from(out);
+}
+
+export function extractFrontmatterLinks(
+  frontmatter: Record<string, unknown> | null,
+  keys: string[]
+): string[] {
+  const targets = new Set<string>();
+  for (const key of keys) {
+    const value = frontmatter?.[key];
+    for (const item of Array.isArray(value) ? value : [value]) {
+      if (typeof item === 'string')
+        for (const target of extractWikilinks(item)) targets.add(target);
+    }
+  }
+  return [...targets];
 }
 
 /** Drop the table-escape backslash left on a target split at `\|` (`[[A\|b]]` -> `A`). */
@@ -199,7 +216,12 @@ export function chunkNote(
   const opts = { ...DEFAULTS, ...options };
   const { frontmatter, body, error: frontmatterError } = parseFrontmatter(content);
   const title = deriveTitle(frontmatter, body, relPath);
-  const links = extractWikilinks(body);
+  const links = [
+    ...new Set([
+      ...extractWikilinks(body),
+      ...extractFrontmatterLinks(frontmatter, options.frontmatterLinkKeys ?? []),
+    ]),
+  ];
   const chunks: Chunk[] = [];
 
   // Chunk 0: title + summary (+ tags, as plain words). Always present.

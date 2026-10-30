@@ -10,6 +10,7 @@
 import { createHash } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
+import { parseFrontmatter, editFrontmatter, setFrontmatterField } from '../vault/frontmatter.js';
 import { chunkNote } from './chunker.js';
 import {
   hasNoindexMarker,
@@ -37,6 +38,8 @@ export interface VaultFile {
 
 export interface ScannerOptions {
   vaultPath: string;
+  frontmatterLinkKeys: string[];
+  volatileKeys: string[];
   store: IndexStore;
   embedder: Embedder;
   log?: (msg: string) => void;
@@ -89,6 +92,27 @@ export function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
+export function contentHash(content: string, volatileKeys: string[]): string {
+  if (!volatileKeys?.length) return sha256(content);
+  const parsed = parseFrontmatter(content);
+  if (
+    parsed.error ||
+    !parsed.frontmatter ||
+    !volatileKeys.some(k => Object.hasOwn(parsed.frontmatter!, k))
+  )
+    return sha256(content);
+  try {
+    const r = editFrontmatter(
+      content,
+      doc => volatileKeys.forEach(k => setFrontmatterField(doc, k, null)),
+      { createIfMissing: false }
+    );
+    return sha256(r ? r.content : content);
+  } catch {
+    return sha256(content);
+  }
+}
+
 /**
  * Index one file: read, chunk, embed, store. Returns false if the note opted
  * out via frontmatter (and removes any stale rows for it).
@@ -98,7 +122,7 @@ export async function indexFile(
   content: string,
   opts: ScannerOptions
 ): Promise<boolean> {
-  const note = chunkNote(content, file.relPath);
+  const note = chunkNote(content, file.relPath, { frontmatterLinkKeys: opts.frontmatterLinkKeys });
   if (isExcludedByFrontmatter(note.frontmatter)) {
     await opts.store.deleteDocument(file.relPath);
     return false;
@@ -120,7 +144,7 @@ export async function indexFile(
     title: note.title,
     frontmatter: note.frontmatter,
     tags,
-    contentSha256: sha256(content),
+    contentSha256: contentHash(content, opts.volatileKeys),
     mtime: file.mtime,
     size: file.size,
     chunks: note.chunks,
@@ -154,7 +178,7 @@ export async function scanOnce(opts: ScannerOptions): Promise<ScanStats> {
 
     try {
       const content = await fs.readFile(file.absPath, 'utf-8');
-      if (prev && prev.contentSha256 === sha256(content)) {
+      if (prev && prev.contentSha256 === contentHash(content, opts.volatileKeys)) {
         // Touched but not changed (e.g. Linter re-saved identical bytes): refresh stat only.
         await opts.store.upsertDocumentStat(file.relPath, file.mtime, file.size);
         continue;

@@ -6,4 +6,5 @@ export const CLASSES = [
   { class: 'summary-refresh', graduable: true },
   { class: 'merge-duplicate', graduable: false },
   { class: 'hub-review', graduable: false },
+  { class: 'link-coread', graduable: true },
 ];

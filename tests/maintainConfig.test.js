@@ -20,6 +20,8 @@ describe('maintenance configuration', () => {
       hubDays: 14,
       summaryDrop: 0.05,
       maxPerClass: 10,
+      coreadMinWeight: 1.5,
+      coreadMinEvents: 2,
     });
     expect(
       readMaintainConfig({
@@ -50,6 +52,7 @@ describe('maintenance configuration', () => {
           error: `Invalid ${name}=${value}: expected a number between 0 and 1`,
         }));
   for (const [name, max] of [
+    ['MAINTAIN_COREAD_MIN_EVENTS', 1000],
     ['MAINTAIN_HUB_DAYS', 365],
     ['MAINTAIN_MAX_PER_CLASS', 100],
   ])

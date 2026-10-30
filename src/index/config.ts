@@ -16,11 +16,25 @@ export interface IndexConfig {
   intervalSeconds: number;
   ranking: RankingConfig;
   learn: LearnConfig;
+  frontmatterLinkKeys: string[];
+  volatileKeys: string[];
 }
 
 export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConfig | null {
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) return null;
+  const keys = (name: string): string[] => {
+    const value = env[name] ?? '';
+    const items = value
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
+    if (items.some(k => !/^[A-Za-z0-9_-]+$/.test(k)))
+      throw new Error(
+        `Invalid ${name}=${value}: expected comma-separated keys of letters, digits, _ or -`
+      );
+    return items;
+  };
   const provider = env.EMBED_PROVIDER === 'fake' ? 'fake' : 'ollama';
   const dim = env.EMBED_DIM ? Number(env.EMBED_DIM) : undefined;
   return {
@@ -36,5 +50,7 @@ export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConf
     intervalSeconds: Math.max(5, Number(env.INDEX_INTERVAL_SECONDS || 60)),
     ranking: parseRankingEnv(env),
     learn: readLearnConfig(env),
+    frontmatterLinkKeys: keys('INDEX_FRONTMATTER_LINK_KEYS'),
+    volatileKeys: keys('INDEX_VOLATILE_KEYS'),
   };
 }
