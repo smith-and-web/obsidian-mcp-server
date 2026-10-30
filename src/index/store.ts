@@ -28,6 +28,7 @@ import {
 } from './ranking.js';
 
 const { Pool } = pg;
+const POOL_SIZE = 4;
 
 export interface SearchShadow {
   ranker: string;
@@ -197,6 +198,8 @@ function unlinked(a: string, b: string): string {
 
 export class IndexStore {
   private pool: pg.Pool;
+  private trailsSearches = 0;
+  private trailsWaiters: (() => void)[] = [];
   readonly collection: string;
 
   constructor(options: IndexStoreOptions) {
@@ -205,7 +208,7 @@ export class IndexStore {
       .join(' ');
     this.pool = new Pool({
       connectionString: options.connectionString,
-      max: 4,
+      max: POOL_SIZE,
       ...(opts ? { options: opts } : {}),
     });
     this.collection = options.collection;
@@ -1590,6 +1593,18 @@ FROM scores;`,
     return (await this.searchRanked(queryEmbedding, queryText, options)).results;
   }
 
+  /** Keep one pool slot available for weights while enabled searches hold transactions. */
+  private async reserveTrailsSearch(): Promise<() => void> {
+    if (this.trailsSearches >= POOL_SIZE - 1)
+      await new Promise<void>(resolve => this.trailsWaiters.push(resolve));
+    else this.trailsSearches++;
+    return () => {
+      const next = this.trailsWaiters.shift();
+      if (next) next();
+      else this.trailsSearches--;
+    };
+  }
+
   async searchRanked(
     queryEmbedding: number[] | null,
     queryText: string,
@@ -1605,7 +1620,17 @@ FROM scores;`,
 
     const params: unknown[] = [this.collection];
     const filter = this.filterSql(options, params);
-    const client = await this.pool.connect();
+    const releaseTrailsSlot =
+      options.trails && options.trails.mode !== 'off'
+        ? await this.reserveTrailsSearch()
+        : undefined;
+    let client: pg.PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch (err) {
+      releaseTrailsSlot?.();
+      throw err;
+    }
     type LegRow = { id: string; document_id: string; ord: number; score: number; rn: string };
     const toLeg = (rows: LegRow[]): LegHit[] =>
       rows.map(r => ({
@@ -1727,8 +1752,12 @@ FROM scores;`,
       throw err;
     } finally {
       // A failed ROLLBACK means the connection is suspect; destroy it rather than pool it.
-      if (releaseErr) client.release(releaseErr);
-      else client.release();
+      try {
+        if (releaseErr) client.release(releaseErr);
+        else client.release();
+      } finally {
+        releaseTrailsSlot?.();
+      }
     }
   }
 

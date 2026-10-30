@@ -778,6 +778,24 @@ run('trails ranking and shadow logging', () => {
     expect(error).toHaveBeenCalledWith('trails-rerank:', expect.stringContaining('missing_trails_column_for_test'));
     await expect(service.store.search(null, 'alpha', { mode: 'text', k: 3 })).resolves.toEqual(baseline);
   });
+  it.each(['shadow', 'on'])('finishes eight concurrent %s searches without starving the weights pool', async mode => {
+    const pool = service.store['pool'];
+    const previous = pool.options.connectionTimeoutMillis;
+    pool.options.connectionTimeoutMillis = 500;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const searches = await Promise.all(Array.from({ length: 8 }, () => service.store.searchRanked(null, 'alpha', {
+        mode: 'text', k: 1, trails: { mode, w: 0.5, anchors: 1 },
+      })));
+      for (const ranked of searches) {
+        if (mode === 'shadow') {
+          expect(ranked.results).toEqual(baseline.slice(0, 1));
+          expect(ranked.shadow.results[0].path).toBe(target);
+        } else expect(ranked.results[0].path).toBe(target);
+      }
+      expect(error).not.toHaveBeenCalled();
+    } finally { pool.options.connectionTimeoutMillis = previous; }
+  });
   it('uses 60 for DBSF trail boosts and the configured constant for RRF', async () => {
     for (const [fusion, rrfK, denominator] of [['dbsf', 1, 61], ['rrf', 1, 2]]) {
       const options = { mode: 'text', k: 3, ranking: { ...DEFAULT_RANKING, fusion, rrfK } };
