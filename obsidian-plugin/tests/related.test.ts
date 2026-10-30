@@ -36,4 +36,23 @@ describe('addRelatedLink', () => {
       '## Related\n- [[B]]\n\n## Other\n'
     );
   });
+  it('removes whitespace-only trailing blank lines before a new section', () => {
+    expect(addRelatedLink('Body\n \n\t\n', 'B')).toBe('Body\n\n## Related\n- [[B]]\n');
+    expect(addRelatedLink('Body\r\n \r\n', 'B')).toBe('Body\r\n\r\n## Related\r\n- [[B]]\r\n');
+  });
+  it('ignores a Related heading inside fenced code', () => {
+    const content = '# A\n\n```md\n## Related\n## Example\n```\n';
+    expect(addRelatedLink(content, 'B')).toBe(content + '\n## Related\n- [[B]]\n');
+  });
+  it('ignores fenced section boundaries inside a real Related section', () => {
+    const content =
+      '## Related\n- [[A]]\n~~~~md\n## Example\n~~~\n# Still fenced\n~~~~\n\n## Next\n';
+    expect(addRelatedLink(content, 'B')).toBe(
+      '## Related\n- [[A]]\n~~~~md\n## Example\n~~~\n# Still fenced\n~~~~\n- [[B]]\n\n## Next\n'
+    );
+  });
+  it('leaves frontmatter headings alone', () => {
+    const content = '---\nsummary: |\n  ## Related\n---\nBody\n';
+    expect(addRelatedLink(content, 'B')).toBe(content + '\n## Related\n- [[B]]\n');
+  });
 });

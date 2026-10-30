@@ -58,17 +58,15 @@ export class RelatedView extends ItemView {
     if (refresh) this.cache.delete(file.path);
     try {
       const cached = this.cache.get(file.path);
-      const data =
-        cached && Date.now() - cached.at < 5 * 60 * 1000
-          ? cached.data
-          : await fetchRelated(serverUrl, token, file.path, k);
+      const cacheHit = cached && Date.now() - cached.at < 5 * 60 * 1000;
+      const data = cacheHit ? cached.data : await fetchRelated(serverUrl, token, file.path, k);
       if (
         generation !== this.generation ||
         this.closed ||
         this.app.workspace.getActiveFile()?.path !== file.path
       )
         return;
-      this.cache.set(file.path, { at: Date.now(), data });
+      if (!cacheHit) this.cache.set(file.path, { at: Date.now(), data });
       header.createEl('strong', { text: data.title });
       if (data.heat !== null)
         header.createSpan({ text: `heat ${data.heat.bucket}`, cls: 'mcp-related-heat' });
