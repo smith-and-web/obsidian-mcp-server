@@ -270,7 +270,7 @@ run('maintenance against pgvector', () => {
     expect(run.error_text).toBeNull();
     expect(
       (await pool.query('SELECT * FROM change_classes WHERE collection=$1', [collection])).rowCount
-    ).toBe(7);
+    ).toBe(8);
   });
   it('parses checkboxes before replacing the report and counts acceptance', async () => {
     const related = await finding('link-related'),
@@ -392,7 +392,7 @@ run('maintenance against pgvector', () => {
         log: l => lines.push(l),
       })
     ).toEqual({ code: 0 });
-    expect(lines.filter(l => l.endsWith(' candidates'))).toHaveLength(7);
+    expect(lines.filter(l => l.endsWith(' candidates'))).toHaveLength(8);
     expect(lines.filter(l => l.startsWith('hygiene.'))).toHaveLength(6);
     expect(lines.at(-1)).toBe('dry run complete');
     expect(
@@ -491,4 +491,24 @@ run('maintenance against pgvector', () => {
       )
     ).toEqual({ recorded: false, reason: 'unknown finding' });
   });
+  it('link-coread applies both thresholds, excludes links either way, and renders its report', async () => {
+    const edge = async (a,b,weight,events) => pool.query('INSERT INTO trails(collection,path_a,path_b,weight,events,last_at,computed_at) VALUES($1,least($2::text,$3::text),greatest($2::text,$3::text),$4,$5,$6,$6)',[collection,a,b,weight,events,now]);
+    await edge('notes/apple pie.md','notes/apple pies.md',2,3);
+    await edge('notes/hub.md','notes/pear tart.md',3,3);
+    await edge('notes/bare.md','notes/broken.md',1,3);
+    await edge('notes/apple pie.md','notes/broken.md',3,1);
+    const pairs=await service.store.findCoReadPairs(1.5,2);
+    expect(pairs).toHaveLength(1);expect(pairs[0].paths).toEqual(['notes/apple pie.md','notes/apple pies.md']);
+    expect(pairs[0].detail).toMatchObject({weight:2,events:3});
+    expect(await perform()).toEqual({code:0});
+    expect(await fs.readFile(reportFile(),'utf8')).toContain("Read together on 3 session-days (trail weight 2.0) but neither links to the other. Add each to the other's `## Related`.");
+    const reverse=await pool.query('INSERT INTO links(src_document_id,target_path,target_document_id) SELECT a.id,b.path,b.id FROM documents a,documents b WHERE a.collection=$1 AND b.collection=$1 AND a.path=$2 AND b.path=$3 RETURNING src_document_id,target_path',[collection,'notes/apple pies.md','notes/apple pie.md']);
+    expect(await service.store.findCoReadPairs(1.5,2)).toEqual([]);
+    await pool.query('DELETE FROM links WHERE src_document_id=$1 AND target_path=$2',[reverse.rows[0].src_document_id,reverse.rows[0].target_path]);
+    const f=path.join(root,'notes/apple pie.md');const text=await fs.readFile(f,'utf8');await fs.writeFile(f,text.replace('---\n','---\nup: ["[[apple pies]]"]\n'));
+    await scanOnce({vaultPath:root,store:service.store,embedder:service.embedder,frontmatterLinkKeys:['up'],volatileKeys:[]});
+    expect(await service.store.findCoReadPairs(1.5,2)).toEqual([]);
+    await pool.query('DELETE FROM trails WHERE collection=$1',[collection]);
+  });
+
 });

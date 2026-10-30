@@ -510,7 +510,7 @@ FROM scores;`,
     rows: { paths: string[]; detail: Record<string, unknown> }[]
   ): Candidate[] {
     return rows.map(row => {
-      const paths = ['link-related', 'merge-duplicate'].includes(cls)
+      const paths = ['link-related', 'merge-duplicate', 'link-coread'].includes(cls)
         ? [...row.paths].sort()
         : row.paths;
       return { key: `${cls}:${paths.join('|')}`, paths, detail: row.detail };
@@ -537,6 +537,22 @@ FROM scores;`,
    * the chunks cannot give exactly (they repeat the title in every breadcrumb), and returns the
    * first of the names, longest first, that it really contains.
    */
+  async findCoReadPairs(minWeight: number, minEvents: number): Promise<Candidate[]> {
+    const sql = `
+    SELECT ARRAY[t.path_a, t.path_b] AS paths,
+           jsonb_build_object('weight', round(t.weight::numeric, 1), 'events', t.events, 'lastAt', t.last_at) AS detail
+    FROM trails t
+    JOIN documents a ON a.collection = t.collection AND a.path = t.path_a
+    JOIN documents b ON b.collection = t.collection AND b.path = t.path_b
+    WHERE t.collection = $1 AND t.weight >= $2 AND t.events >= $3
+      AND ${eligible('a')} AND ${eligible('b')}
+      AND ${outsideJournal('a')} AND ${outsideJournal('b')}
+      AND ${unlinked('a', 'b')}
+    ORDER BY t.weight DESC, t.path_a, t.path_b`;
+    const rows = (await this.pool.query(sql, [this.collection, minWeight, minEvents])).rows;
+    return this.candidates('link-coread', rows);
+  }
+
   async findUnlinkedMentions(
     mentionedName: (source: string, names: string[]) => Promise<string | null>
   ): Promise<Candidate[]> {
@@ -828,7 +844,7 @@ FROM scores;`,
   async openFindings(limit: number): Promise<FindingRow[]> {
     const result = await this.pool.query(
       `SELECT ${this.findingColumns} FROM maintenance_findings WHERE collection=$1 AND status='open'
-      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review'],class),id LIMIT $2`,
+      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review','link-coread'],class),id LIMIT $2`,
       [this.collection, limit]
     );
     return this.findingRows(result.rows);
@@ -879,7 +895,7 @@ FROM scores;`,
   async maintenanceClassCounts(): Promise<{ class: string; decided: number; accepted: number }[]> {
     const result = await this.pool.query(
       `SELECT class,decided,accepted FROM change_classes WHERE collection=$1
-      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review'],class)`,
+      ORDER BY array_position(ARRAY['link-related','link-mention','link-repair','fm-missing','summary-refresh','merge-duplicate','hub-review','link-coread'],class)`,
       [this.collection]
     );
     return result.rows;

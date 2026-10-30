@@ -8,7 +8,7 @@ import { vaultMentionVerifier } from './mentions.js';
 import { isoWeek, renderReport, type MaintenanceMetrics } from './report.js';
 
 /**
- * Runs the seven checks in their report order. No learn data or ranking settings are read; the
+ * Runs the eight checks in their report order. No ranking settings are read; the
  * vault is read only to confirm that a mention is in a note's prose.
  */
 async function checks(store: IndexStore, c: MaintainConfig) {
@@ -20,6 +20,7 @@ async function checks(store: IndexStore, c: MaintainConfig) {
     await store.findStaleSummaries(c.summaryDrop),
     await store.findNearDuplicates(c.dupCosine, c.dupTitleSim),
     await store.findStaleHubs(c.hubDays),
+    await store.findCoReadPairs(c.coreadMinWeight, c.coreadMinEvents),
   ];
 }
 

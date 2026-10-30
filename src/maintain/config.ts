@@ -11,6 +11,8 @@ export interface MaintainConfig {
   hubDays: number;
   summaryDrop: number;
   maxPerClass: number;
+  coreadMinWeight: number;
+  coreadMinEvents: number;
 }
 
 /** Parse worker configuration without throwing; dry runs need no writable report directory. */
@@ -40,6 +42,11 @@ export function readMaintainConfig(
         );
       return value;
     };
+    const coreadMinWeight = Number(env.MAINTAIN_COREAD_MIN_WEIGHT ?? '1.5');
+    if (!Number.isFinite(coreadMinWeight) || coreadMinWeight <= 0 || coreadMinWeight > 1000)
+      return {
+        error: `Invalid MAINTAIN_COREAD_MIN_WEIGHT=${env.MAINTAIN_COREAD_MIN_WEIGHT}: expected a number from 0 to 1000, exclusive of 0`,
+      };
     return {
       config: {
         databaseUrl: env.DATABASE_URL!,
@@ -53,6 +60,8 @@ export function readMaintainConfig(
         dupTitleSim: numeric('MAINTAIN_DUP_TITLE_SIM', 0.6),
         hubDays: numeric('MAINTAIN_HUB_DAYS', 14, 365),
         summaryDrop: numeric('MAINTAIN_SUMMARY_DROP', 0.05),
+        coreadMinWeight,
+        coreadMinEvents: numeric('MAINTAIN_COREAD_MIN_EVENTS', 2, 1000),
         maxPerClass: numeric('MAINTAIN_MAX_PER_CLASS', 10, 100),
       },
     };

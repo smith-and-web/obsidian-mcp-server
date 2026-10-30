@@ -93,6 +93,11 @@ function findingText(f: FindingRow, timeZone: string): [string, string] {
         link(a),
         `${link(d.newestLinked)} was updated ${Math.floor(Number(d.days))} days after this hub. Review its status.`,
       ];
+    case 'link-coread':
+      return [
+        `${link(a)} ↔ ${link(b)}`,
+        `Read together on ${d.events} session-days (trail weight ${Number(d.weight).toFixed(1)}) but neither links to the other. Add each to the other's \`## Related\`.`,
+      ];
     default:
       throw new Error(`Unknown finding class: ${f.class}`);
   }
