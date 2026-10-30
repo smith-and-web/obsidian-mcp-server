@@ -7,6 +7,7 @@
  */
 
 import express from 'express';
+import { createRelatedHandler } from './server/related.js';
 import { VaultManager } from './vault/VaultManager.js';
 import { createMCPServer } from './server/mcp.js';
 import { readInstructions } from './server/instructions.js';
@@ -95,6 +96,7 @@ app.post('/sse', auth, handlePostRequest);
 
 // Ends a POST /sse session (Mcp-Session-Id header) - protected
 app.delete('/sse', auth, handleSessionDelete);
+app.get('/api/related', auth, createRelatedHandler(search));
 
 // Start server
 app.listen(PORT, () => {
