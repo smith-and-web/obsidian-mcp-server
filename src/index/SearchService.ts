@@ -12,7 +12,7 @@ import { IndexStore, type IndexStatus, type SearchHit, type SimilarHit } from '.
 import { indexFile } from './scanner.js';
 import { isExcludedPath } from './exclusions.js';
 import type { IndexConfig } from './config.js';
-import { DEFAULT_RANKING, rankingId, type RankingConfig } from './ranking.js';
+import { DEFAULT_RANKING, rankingId, type RankingConfig, type TrailsConfig } from './ranking.js';
 import { LearnLog, NO_CONTEXT, type CallContext } from '../learn/log.js';
 
 export interface SemanticSearchOptions {
@@ -61,7 +61,8 @@ export class SearchService {
     ranking: RankingConfig,
     learn: LearnLog | null,
     frontmatterLinkKeys: string[],
-    volatileKeys: string[]
+    volatileKeys: string[],
+    private trails?: TrailsConfig
   ) {
     this.store = store;
     this.embedder = embedder;
@@ -90,7 +91,8 @@ export class SearchService {
       config.ranking,
       config.learn?.enabled ? new LearnLog(store, config.learn) : null,
       config.frontmatterLinkKeys,
-      config.volatileKeys
+      config.volatileKeys,
+      config.trails
     );
   }
 
@@ -110,7 +112,7 @@ export class SearchService {
     const trimmed = query.trim();
     if (!trimmed) return { query, mode, results: [] };
     const embedding = mode === 'text' ? null : (await this.embedder.embed([trimmed]))[0];
-    const results = await this.store.search(embedding, trimmed, {
+    const { results, shadow } = await this.store.searchRanked(embedding, trimmed, {
       k: options.k,
       mode,
       directory: options.directory,
@@ -118,6 +120,7 @@ export class SearchService {
       type: options.type,
       status: options.status,
       ranking: this.ranking,
+      trails: this.trails,
     });
     if (!this.learn) return { query, mode, results };
     const requestId = this.learn.newRequestId();
@@ -128,7 +131,8 @@ export class SearchService {
       query: trimmed,
       embedding,
       params: { ...options },
-      ranker: rankingId(this.ranking ?? DEFAULT_RANKING),
+      ranker: rankingId(this.ranking ?? DEFAULT_RANKING, this.trails),
+      shadow,
       results: results.map((hit, i) => ({ path: hit.path, ord: hit.ord, rank: i + 1 })),
     });
     return { query, mode, results, requestId };

@@ -696,3 +696,95 @@ run('learn log end to end', () => {
     await service.store.resetSchema(); await service.store.ensureSchema('fake', 64);
   });
 });
+
+run('trails ranking and shadow logging', () => {
+  let root;
+  let service;
+  let baseline;
+  let target;
+  let config;
+  const collection = `test-shadow-${process.pid}-${Date.now()}`;
+  beforeAll(async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'vault-shadow-'));
+    await fs.mkdir(path.join(root, 'notes'));
+    for (const name of ['a', 'b', 'c'])
+      await fs.writeFile(path.join(root, `notes/${name}.md`), '# Alpha\n\nalpha token');
+    config = { databaseUrl: DB, collection, embedder: { provider: 'fake', dim: 64, model: 'fake' },
+      intervalSeconds: 60, ranking: DEFAULT_RANKING, learn: { enabled: true, patterns: [], retentionDays: 30 } };
+    service = await SearchService.create(config, root);
+    await scanOnce({ vaultPath: root, store: service.store, embedder: service.embedder });
+    baseline = await service.store.search(null, 'alpha', { mode: 'text', k: 3 });
+    expect(baseline).toHaveLength(3);
+    target = baseline[2].path;
+    await service.store['pool'].query(`INSERT INTO trails (collection, path_a, path_b, weight, events, last_at, computed_at)
+      VALUES ($1, LEAST($2::text, $3::text), GREATEST($2::text, $3::text), 9, 2, now(), now())`,
+      [collection, baseline[0].path, target]);
+  });
+  afterEach(() => vi.restoreAllMocks());
+  afterAll(async () => {
+    if (service) { await service.learn.flush(); await service.store.truncateCollection(); await service.close(); }
+    if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+  const searchWith = async trails => {
+    const other = await SearchService.create({ ...config, trails }, root);
+    try {
+      const result = await other.semanticSearch('alpha', { mode: 'text', k: 1 });
+      await other.learn.flush();
+      const row = (await other.store['pool'].query('SELECT ranker, results, shadow FROM search_log WHERE id=$1', [result.requestId])).rows[0];
+      return { result, row };
+    } finally { await other.close(); }
+  };
+  it('off or absent performs no trailWeights call and keeps results and the ranker id unchanged', async () => {
+    const spy = vi.spyOn(service.store, 'trailWeights');
+    expect(await service.store.searchRanked(null, 'alpha', { mode: 'text', k: 3 })).toEqual({ results: baseline, shadow: null });
+    expect(await service.store.searchRanked(null, 'alpha', { mode: 'text', k: 3, trails: { mode: 'off', w: 0.5, anchors: 1 } })).toEqual({ results: baseline, shadow: null });
+    expect(spy).not.toHaveBeenCalled();
+    const { row } = await searchWith({ mode: 'off', w: 0.5, anchors: 1 });
+    expect(row.ranker).toBe('rrf-k60-v1-t1-cap0');
+    expect(row.shadow).toBeNull();
+  });
+  it('shadow leaves live order and scores unchanged while fetching the union and logging 1-based shadow ranks', async () => {
+    const spy = vi.spyOn(service.store, 'trailWeights');
+    const ranked = await service.store.searchRanked(null, 'alpha', { mode: 'text', k: 1, trails: { mode: 'shadow', w: 0.5, anchors: 1 } });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(ranked.results).toEqual(baseline.slice(0, 1));
+    expect(ranked.shadow).toEqual({ ranker: 'rrf-k60-v1-t1-cap0-tr0.5a1', results: [{ path: target, ord: baseline[2].ord, rank: 1 }] });
+    const { result, row } = await searchWith({ mode: 'shadow', w: 0.5, anchors: 1 });
+    expect(result.results).toEqual(baseline.slice(0, 1));
+    expect(row.ranker).toBe('rrf-k60-v1-t1-cap0');
+    expect(row.shadow).toEqual(ranked.shadow);
+  });
+  it('on returns the reranked order and logs the suffixed ranker', async () => {
+    const { result, row } = await searchWith({ mode: 'on', w: 0.5, anchors: 1 });
+    expect(result.results[0].path).toBe(target);
+    expect(row.ranker).toBe('rrf-k60-v1-t1-cap0-tr0.5a1');
+    expect(row.shadow).toBeNull();
+  });
+  it('stores both edge directions and restricts weights to the supplied documents', async () => {
+    const rows = await service.store['pool'].query('SELECT id, path FROM documents WHERE collection=$1', [collection]);
+    const ids = new Map(rows.rows.map(row => [row.path, Number(row.id)]));
+    const a = ids.get(baseline[0].path), b = ids.get(target);
+    expect(await service.store.trailWeights([a, b])).toEqual(new Map([[`${a}:${b}`, 9], [`${b}:${a}`, 9]]));
+    expect(await service.store.trailWeights([a])).toEqual(new Map());
+    expect(await service.store.trailWeights([])).toEqual(new Map());
+  });
+  it.each(['shadow', 'on'])('a real weights SQL failure cannot abort the search transaction in %s', async mode => {
+    vi.spyOn(service.store, 'trailWeights').mockImplementation(async () => {
+      await service.store['pool'].query('SELECT missing_trails_column_for_test FROM trails');
+    });
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ranked = await service.store.searchRanked(null, 'alpha', { mode: 'text', k: 3, trails: { mode, w: 0.5, anchors: 1 } });
+    expect(ranked).toEqual({ results: baseline, shadow: null });
+    expect(error).toHaveBeenCalledWith('trails-rerank:', expect.stringContaining('missing_trails_column_for_test'));
+    await expect(service.store.search(null, 'alpha', { mode: 'text', k: 3 })).resolves.toEqual(baseline);
+  });
+  it('uses 60 for DBSF trail boosts and the configured constant for RRF', async () => {
+    for (const [fusion, rrfK, denominator] of [['dbsf', 1, 61], ['rrf', 1, 2]]) {
+      const options = { mode: 'text', k: 3, ranking: { ...DEFAULT_RANKING, fusion, rrfK } };
+      const original = await service.store.search(null, 'alpha', options);
+      const result = await service.store.searchRanked(null, 'alpha', { ...options, trails: { mode: 'on', w: 2, anchors: 1 } });
+      expect(result.results[0].path).toBe(target);
+      expect(result.results[0].score).toBeCloseTo(original.find(hit => hit.path === target).score + 2 / denominator, 4);
+    }
+  });
+});
