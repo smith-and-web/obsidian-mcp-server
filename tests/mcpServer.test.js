@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { VaultManager } from '../src/vault/VaultManager.js';
 import { createMCPServer } from '../src/server/mcp.js';
 import { toolDefinitions } from '../src/tools/index.js';
+
+const packageVersion = JSON.parse(
+  fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')
+).version;
 
 /**
  * Build a mocked Express response whose `json` captures the payload.
@@ -76,7 +81,7 @@ describe('createMCPServer handlePostRequest', () => {
         },
         serverInfo: {
           name: 'obsidian-mcp',
-          version: '1.12.0',
+          version: packageVersion,
         },
       },
     });
@@ -338,14 +343,12 @@ describe('maintenance tool surface', () => {
   it('uses built-in redaction without logging and custom redaction with logging', async () => {
     const { executeToolCall } = await import('../src/tools/handlers.js');
     const store = {
-      decideFinding: vi
-        .fn()
-        .mockResolvedValue({
-          id: 17,
-          class: 'link-related',
-          paths: ['notes/a.md'],
-          status: 'accepted',
-        }),
+      decideFinding: vi.fn().mockResolvedValue({
+        id: 17,
+        class: 'link-related',
+        paths: ['notes/a.md'],
+        status: 'accepted',
+      }),
       refreshClassCounts: vi.fn(),
     };
     await executeToolCall(
