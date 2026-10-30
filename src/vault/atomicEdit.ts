@@ -1,13 +1,33 @@
 import fs from 'fs/promises';
 import path from 'path';
-import type YAML from 'yaml';
+import YAML from 'yaml';
 import { editFrontmatter } from './frontmatter.js';
 
 export type EditResult =
   'written' | 'unchanged' | 'recent' | 'raced' | 'invalid' | 'missing' | 'roundtrip';
 
 export function sameExceptKey(before: string, after: string, key: string): boolean {
-  const lines = (text: string) => text.split('\n').filter(line => !line.startsWith(`${key}:`));
+  // Compare exact bytes outside the target field's YAML source range. This also
+  // accepts a flow sequence restyled to a block sequence before a revert.
+  const lines = (text: string): string[] => {
+    const match = text.match(/^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?=\r?\n|$)/);
+    if (!match) return text.split('\n');
+    const doc = YAML.parseDocument(match[1]);
+    if (doc.errors.length || !YAML.isMap(doc.contents)) return text.split('\n');
+    const offset = match[0].indexOf('\n') + 1;
+    const excluded = new Set<number>();
+    for (const pair of doc.contents.items) {
+      if (!YAML.isScalar(pair.key) || pair.key.value !== key || !pair.key.range) continue;
+      const start = offset + pair.key.range[0];
+      const end =
+        offset +
+        (YAML.isNode(pair.value) && pair.value.range ? pair.value.range[2] : pair.key.range[2]);
+      const first = text.slice(0, start).split('\n').length - 1;
+      const last = text.slice(0, Math.max(start, end - 1)).split('\n').length - 1;
+      for (let line = first; line <= last; line++) excluded.add(line);
+    }
+    return text.split('\n').filter((_, i) => !excluded.has(i));
+  };
   return JSON.stringify(lines(before)) === JSON.stringify(lines(after));
 }
 
