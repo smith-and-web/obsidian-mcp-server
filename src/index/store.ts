@@ -35,6 +35,19 @@ export interface SearchShadow {
   results: { path: string; ord: number; rank: number }[];
 }
 
+export interface GraphResponse {
+  nodes: {
+    path: string;
+    title: string;
+    type: string;
+    up: string[];
+    heat: number;
+    score: number;
+  }[];
+  links: [number, number][];
+  trails: [number, number, number][];
+}
+
 export type SearchOptions = {
   k?: number;
   mode?: 'hybrid' | 'vector' | 'text';
@@ -1797,6 +1810,59 @@ FROM scores;`,
       title: r.title,
       score: Number(Number(r.score).toFixed(4)),
     }));
+  }
+
+  /** Read-only collection graph; browsing it never records a search or a note read. */
+  async graph(): Promise<GraphResponse> {
+    const documents = await this.pool.query<{
+      path: string;
+      title: string;
+      type: string | null;
+      up: unknown;
+      score: number | null;
+      bucket: number | null;
+    }>(
+      `SELECT d.path, d.title, d.frontmatter->>'type' AS type, d.frontmatter->'up' AS up, h.score, h.bucket
+       FROM documents d LEFT JOIN note_heat h ON h.collection=d.collection AND h.path=d.path
+       WHERE d.collection=$1 ORDER BY d.path`,
+      [this.collection]
+    );
+    const resolved = await this.pool.query<{ a: string; b: string }>(
+      `SELECT DISTINCT LEAST(s.path, t.path) AS a, GREATEST(s.path, t.path) AS b
+       FROM links l JOIN documents s ON s.id=l.src_document_id
+       JOIN documents t ON t.id=l.target_document_id
+       WHERE s.collection=$1 AND t.collection=$1 AND s.id<>t.id`,
+      [this.collection]
+    );
+    const together = await this.pool.query<{ path_a: string; path_b: string; weight: number }>(
+      'SELECT path_a, path_b, weight FROM trails WHERE collection=$1 AND weight >= 0.5',
+      [this.collection]
+    );
+    const nodes = documents.rows.map(row => ({
+      path: row.path,
+      title: row.title,
+      type: row.type ?? '',
+      up: Array.isArray(row.up)
+        ? row.up.filter((item): item is string => typeof item === 'string')
+        : [],
+      heat: row.bucket ?? 0,
+      score: Number((row.score ?? 0).toFixed(2)),
+    }));
+    const indexes = new Map(nodes.map((node, index) => [node.path, index]));
+    const links: GraphResponse['links'] = [];
+    for (const { a, b } of resolved.rows) {
+      const source = indexes.get(a);
+      const target = indexes.get(b);
+      if (source !== undefined && target !== undefined) links.push([source, target]);
+    }
+    const trails: GraphResponse['trails'] = [];
+    for (const row of together.rows) {
+      const source = indexes.get(row.path_a);
+      const target = indexes.get(row.path_b);
+      if (source !== undefined && target !== undefined)
+        trails.push([source, target, Number(row.weight.toFixed(1))]);
+    }
+    return { nodes, links, trails };
   }
 
   /** Metadata for the related-notes endpoint, without recording a read. */
