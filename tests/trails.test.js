@@ -19,7 +19,7 @@ run('trails against pgvector', () => {
       now,
       windowDays: 180,
       halfLifeDays: 30,
-      tz: 'America/Halifax',
+      tz: 'Atlantic/Bermuda',
       thresholds: [1, 3, 6, 12, 24],
       commit: true,
     });
@@ -51,7 +51,7 @@ run('trails against pgvector', () => {
       DATABASE_URL: DB,
       VAULT_PATH: root,
       INDEX_COLLECTION: collection,
-      TRAILS_TZ: 'America/Halifax',
+      TRAILS_TZ: 'Atlantic/Bermuda',
     }).config;
     for (const name of ['a', 'b', 'c', 'd', 'e'])
       await pool.query(

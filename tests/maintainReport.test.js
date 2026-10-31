@@ -15,7 +15,7 @@ const metrics = {
 const input = {
   reportId: '2026-W44',
   now: new Date('2026-10-26T10:00:00Z'),
-  timeZone: 'America/Halifax',
+  timeZone: 'Atlantic/Bermuda',
   findings: [],
   metrics,
   previousMetrics: null,
@@ -49,8 +49,8 @@ describe('maintenance report', () => {
       ['2027-01-01', '2026-W53'],
       ['2026-10-26', '2026-W44'],
     ])
-      expect(isoWeek(new Date(`${date}T12:00:00Z`), 'America/Halifax')).toBe(week);
-    expect(isoWeek(new Date('2026-10-26T01:00:00Z'), 'America/Halifax')).toBe('2026-W43');
+      expect(isoWeek(new Date(`${date}T12:00:00Z`), 'Atlantic/Bermuda')).toBe(week);
+    expect(isoWeek(new Date('2026-10-26T01:00:00Z'), 'Atlantic/Bermuda')).toBe('2026-W43');
   });
   const cases = [
     [

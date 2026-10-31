@@ -478,7 +478,7 @@ to the sum of the two leg weights.
 
 ```yaml
 ---
-title: ubuntubox — NFS mount gate     # else first H1, else file name
+title: host-a — NFS mount gate     # else first H1, else file name
 type: area                            # filterable: semantic-search { type }
 status: active                        # filterable: semantic-search { status }
 tags: [infra, nas]                    # filterable: semantic-search { tags }
@@ -506,7 +506,7 @@ services:
       DATABASE_URL: postgres://brain:${DB_PASSWORD}@brain-db:5432/brain
       OLLAMA_URL: http://ollama:11434
       EMBED_MODEL: nomic-embed-text
-      INDEX_COLLECTION: secondbrain
+      INDEX_COLLECTION: notes
     volumes:
       - /path/to/vault:/vault:rw
     ports: ["127.0.0.1:3001:3000"]
@@ -519,7 +519,7 @@ services:
       DATABASE_URL: postgres://brain:${DB_PASSWORD}@brain-db:5432/brain
       OLLAMA_URL: http://ollama:11434
       EMBED_MODEL: nomic-embed-text
-      INDEX_COLLECTION: secondbrain
+      INDEX_COLLECTION: notes
       INDEX_INTERVAL_SECONDS: "60"
     volumes:
       - /path/to/vault:/vault:ro

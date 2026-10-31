@@ -59,14 +59,14 @@ run('maintenance false positives', () => {
       'notes/Sprocket user.md',
       note('Sprocket user', 'reference', 'The sprocket turns.')
     );
-    await write('notes/kindling.md', note('kindling', 'project', 'A writing app.'));
+    await write('notes/lantern.md', note('lantern', 'project', 'A writing app.'));
     await write(
       'notes/Launch page.md',
-      note('Launch page', 'reference', 'Deployed kindling-splash yesterday.')
+      note('Launch page', 'reference', 'Deployed lantern-site yesterday.')
     );
     await write(
       'Journal/2026-01-05.md',
-      note('2026-01-05', 'journal', `The sprocket turns. kindling shipped. ${widgetBody}`)
+      note('2026-01-05', 'journal', `The sprocket turns. lantern shipped. ${widgetBody}`)
     );
     service = await SearchService.create(
       {
@@ -124,7 +124,7 @@ run('maintenance false positives', () => {
   });
   it('does not match a name inside a hyphenated word', async () => {
     const mentions = await service.store.findUnlinkedMentions(vaultMentionVerifier(root));
-    expect(has(mentions, 'notes/Launch page.md', 'notes/kindling.md')).toBe(false);
+    expect(has(mentions, 'notes/Launch page.md', 'notes/lantern.md')).toBe(false);
   });
   it('gives Journal notes no link findings', async () => {
     const mentions = await service.store.findUnlinkedMentions(vaultMentionVerifier(root));

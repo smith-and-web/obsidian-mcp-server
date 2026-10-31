@@ -74,10 +74,10 @@ describe('update-frontmatter edits in place', () => {
   });
 
   it('deletes a field set to null and appends a new field at the end', async () => {
-    await vm.updateFrontmatter('note.md', { index: null, owner: 'josh' });
+    await vm.updateFrontmatter('note.md', { index: null, owner: 'owner-a' });
     const lines = frontmatterLines(await read('note.md'));
     expect(lines.some(l => l.startsWith('index:'))).toBe(false);
-    expect(lines[lines.length - 1]).toBe('owner: josh');
+    expect(lines[lines.length - 1]).toBe('owner: owner-a');
   });
 
   it('quotes values a YAML 1.1 reader would not read back as strings', async () => {
@@ -188,7 +188,7 @@ describe('add-tags and remove-tags edit in place', () => {
 describe('section tools match headings literally', () => {
   const HEADINGS = [
     '## Status (2026-10-14)',
-    '## Alerts (Prometheus, ubuntubox)',
+    '## Alerts (Prometheus, host-a)',
     '## Q&A [draft] + more?',
     '## 100% done | really',
     '## C++ and *stars* $5',
@@ -204,12 +204,12 @@ describe('section tools match headings literally', () => {
       expect(r.content).toContain(`body of ${h.slice(3)}`);
     }
     await vm.appendToSection('h.md', '## Status (2026-10-14)', 'appended line');
-    await vm.replaceSection('h.md', '## Alerts (Prometheus, ubuntubox)', 'replaced body');
+    await vm.replaceSection('h.md', '## Alerts (Prometheus, host-a)', 'replaced body');
     const out = await read('h.md');
     expect(out).toContain('body of Status (2026-10-14)\n');
     expect(out).toMatch(/appended line/);
-    expect(out).toContain('## Alerts (Prometheus, ubuntubox)\nreplaced body');
-    expect(out).not.toContain('body of Alerts (Prometheus, ubuntubox)');
+    expect(out).toContain('## Alerts (Prometheus, host-a)\nreplaced body');
+    expect(out).not.toContain('body of Alerts (Prometheus, host-a)');
     // neighbouring sections are intact
     expect(out).toContain('body of Q&A [draft] + more?');
     expect(out).toContain('## Plain\nplain body');
