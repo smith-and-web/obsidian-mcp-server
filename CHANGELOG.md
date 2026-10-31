@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-10-31
+
+### Changed
+- Brain view layout: the whole graph is fitted into one brain-proportioned volume (its longest spread runs front to
+  back) instead of two hemispheres. The old warp assigned each note to a side by which side of the centre it landed
+  on and pushed the sides apart, so closely linked notes near the middle were split and their links stretched across
+  the gap. Force layout, seeding and overlap relaxation are unchanged.
+
 ## [1.15.0] - 2026-10-30
 
 ### Added

@@ -1,21 +1,53 @@
 import { isHub, seededRandom, type BrainModel } from './brain-model';
 
-const HEMI = [
-  { c: [-0.34, 0.06, 0.02], r: [0.4, 0.56, 0.86] },
-  { c: [0.34, 0.06, 0.02], r: [0.4, 0.56, 0.86] },
-];
-const inEll = (p: number[], e: { c: number[]; r: number[] }, pad = 1): boolean => {
-  let s = 0;
-  for (let k = 0; k < 3; k++) {
-    const d = (p[k] - e.c[k]) / (e.r[k] * pad);
-    s += d * d;
-  }
-  return s <= 1;
+/** Radii of the single brain-proportioned volume, in units of BRAIN: front-back, width, height. */
+const RZ = 0.95,
+  RX = 0.78,
+  RY = 0.6,
+  FILL = 0.9,
+  LIFT = 0.05;
+type Vec3 = [number, number, number];
+const norm = (v: Vec3): Vec3 => {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
 };
-const inCerebrum = (p: number[]): boolean =>
-  p[1] > -0.42 + 0.18 * Math.max(0, p[2] + 0.2) && HEMI.some(h => inEll(p, h));
+const mul = (m: number[][], v: Vec3): Vec3 => [
+  m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+  m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+  m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+];
+/** Principal axes (largest variance first) of centred points, by deflated power iteration. */
+function principalAxes(points: Vec3[]): Vec3[] {
+  const m = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  for (const p of points)
+    for (let i = 0; i < 3; i++)
+      for (let j = 0; j < 3; j++) m[i][j] += (p[i] * p[j]) / points.length;
+  const axes: Vec3[] = [];
+  for (let k = 0; k < 3; k++) {
+    let v = norm([1, 0.7 - k * 0.3, 0.4 + k * 0.2]);
+    for (let it = 0; it < 60; it++) v = norm(mul(m, v));
+    for (const a of axes) {
+      const d = v[0] * a[0] + v[1] * a[1] + v[2] * a[2];
+      v = norm([v[0] - d * a[0], v[1] - d * a[1], v[2] - d * a[2]]);
+    }
+    const mv = mul(m, v);
+    const lambda = v[0] * mv[0] + v[1] * mv[1] + v[2] * mv[2];
+    axes.push(v);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) m[i][j] -= lambda * v[i] * v[j];
+  }
+  return axes;
+}
 export const BRAIN = 190;
-/** Seeded force ticks and the approved two-hemisphere warp. The model is never mutated. */
+export const VOLUME = { rz: RZ * FILL, rx: RX * FILL, ry: RY * FILL, lift: LIFT };
+/**
+ * Seeded force ticks, then one brain-proportioned volume: the cloud's longest spread runs front to back and the
+ * whole layout is fitted into a single ellipsoid, so linked notes are never split into separate halves. The model
+ * is never mutated.
+ */
 export function layout(
   model: BrainModel,
   { seed = 20261030, budgetMs = 2500 }: { seed?: number; budgetMs?: number } = {}
@@ -97,32 +129,30 @@ export function layout(
     }
   }
   for (let i = 0; i < 320 && performance.now() - start < budgetMs; i++) tick(1 - i / 340);
-  const cx = nodes.reduce((s, n) => s + n.x, 0) / nodes.length,
-    cy = nodes.reduce((s, n) => s + n.y, 0) / nodes.length,
-    cz = nodes.reduce((s, n) => s + n.z, 0) / nodes.length;
-  const rs = nodes.map(n => Math.hypot(n.x - cx, n.y - cy, n.z - cz)).sort((a, b) => a - b);
-  const r95 = rs[Math.floor(rs.length * 0.95)];
+  const n0 = nodes.length;
+  const centre: Vec3 = [0, 0, 0];
   for (const n of nodes) {
-    let dx = n.x - cx,
-      dy = n.y - cy,
-      dz = n.z - cz;
-    const r = Math.hypot(dx, dy, dz) + 1e-6;
-    dx /= r;
-    dy /= r;
-    dz /= r;
-    const h = dx < 0 ? HEMI[0] : HEMI[1];
-    let R = 0;
-    while (
-      R < 1.4 &&
-      inCerebrum([h.c[0] + dx * (R + 0.01), h.c[1] + dy * (R + 0.01), h.c[2] + dz * (R + 0.01)])
-    )
-      R += 0.01;
-    const t = Math.pow(Math.min(1, r / r95), 0.55);
-    const gap = Math.sign(dx || 1) * 0.04;
-    n.x = (h.c[0] + gap + dx * R * 0.86 * t) * BRAIN;
-    n.y = (h.c[1] + dy * R * 0.86 * t) * BRAIN;
-    n.z = (h.c[2] + dz * R * 0.86 * t) * BRAIN;
+    centre[0] += n.x / n0;
+    centre[1] += n.y / n0;
+    centre[2] += n.z / n0;
   }
+  const points = nodes.map(n => [n.x - centre[0], n.y - centre[1], n.z - centre[2]] as Vec3);
+  const axes = principalAxes(points);
+  // Coordinates along (longest, middle, shortest) become (front-back z, width x, height y).
+  const coords = points.map(p => axes.map(a => p[0] * a[0] + p[1] * a[1] + p[2] * a[2]));
+  const spread = [0, 1, 2].map(k => {
+    const v = coords.map(c => Math.abs(c[k])).sort((x, y) => x - y);
+    return v[Math.floor(v.length * 0.95)] || 1;
+  });
+  coords.forEach((c, i) => {
+    const e = [c[0] / spread[0], c[1] / spread[1], c[2] / spread[2]];
+    const r = Math.hypot(e[0], e[1], e[2]) + 1e-6;
+    const t = Math.pow(Math.min(1, r), 0.7) / r; // soft radial compression; the rim sits at 1
+    const n = nodes[i];
+    n.z = e[0] * t * RZ * FILL * BRAIN;
+    n.x = e[1] * t * RX * FILL * BRAIN;
+    n.y = (e[2] * t * RY * FILL + LIFT) * BRAIN;
+  });
   for (let it = 0; it < 30; it++)
     for (let i = 0; i < nodes.length; i++)
       for (let j = i + 1; j < nodes.length; j++) {
