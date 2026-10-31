@@ -10,9 +10,13 @@
   },
   "devDependencies": {
     "@types/node": "26.6.6",
+    "@types/three": "0.160.0",
     "esbuild": "0.28.2",
     "obsidian": "1.14.4",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
+  },
+  "dependencies": {
+    "three": "0.160.0"
   }
 }

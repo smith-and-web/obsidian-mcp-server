@@ -10,6 +10,88 @@
   background: var(--background-modifier-hover);
   color: var(--text-muted);
 }
-.workspace-leaf-content[data-type="mcp-related-notes"] li button {
+.workspace-leaf-content[data-type='mcp-related-notes'] li button {
   margin-left: 0.5em;
+}
+
+.mcp-brain-view {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: #020309;
+  color: #d7defa;
+  font:
+    12px/1.4 -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+}
+.mcp-brain-view .mcp-brain-stage {
+  position: absolute;
+  inset: 0;
+}
+.mcp-brain-view .mcp-brain-stage canvas {
+  display: block;
+}
+.mcp-brain-view .mcp-brain-stage.hovering {
+  cursor: pointer;
+}
+.mcp-brain-view .mcp-brain-header {
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #6c76a3;
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
+}
+.mcp-brain-view .mcp-brain-header button {
+  font-size: 11px;
+}
+.mcp-brain-view .mcp-brain-lobe {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  transition: opacity 0.2s;
+}
+.mcp-brain-view .mcp-brain-tooltip {
+  position: absolute;
+  pointer-events: none;
+  padding: 7px 11px;
+  border-radius: 9px;
+  background: rgba(10, 12, 24, 0.82);
+  border: 1px solid rgba(160, 180, 255, 0.18);
+  backdrop-filter: blur(8px);
+  color: #eef1ff;
+  font-size: 12.5px;
+  opacity: 0;
+  transition: opacity 0.12s;
+  white-space: nowrap;
+}
+.mcp-brain-view .mcp-brain-tooltip small {
+  display: block;
+  color: #6c76a3;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.mcp-brain-view .mcp-brain-legend {
+  position: absolute;
+  left: 18px;
+  bottom: 16px;
+  color: #6c76a3;
+  font-size: 11px;
+  pointer-events: none;
+}
+.mcp-brain-view .mcp-brain-legend b {
+  color: #aab4e8;
+  font-weight: 500;
 }

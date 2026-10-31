@@ -1,5 +1,6 @@
 import { Plugin } from 'obsidian';
 import { RelatedView, VIEW_TYPE } from './view';
+import { BrainView, BRAIN_VIEW_TYPE } from './brain-view';
 import { DEFAULT_SETTINGS, RelatedSettingsTab, TOKEN_KEY, type RelatedSettings } from './settings';
 
 export default class RelatedPlugin extends Plugin {
@@ -19,6 +20,17 @@ export default class RelatedPlugin extends Plugin {
       autoOpen: typeof saved?.autoOpen === 'boolean' ? saved.autoOpen : true,
     };
     this.registerView(VIEW_TYPE, leaf => new RelatedView(leaf, this));
+    this.registerView(BRAIN_VIEW_TYPE, leaf => new BrainView(leaf, this));
+    this.addRibbonIcon('brain', 'Open brain view', () => {
+      void this.openBrainView();
+    });
+    this.addCommand({
+      id: 'open-brain-view',
+      name: 'Open brain view',
+      callback: () => {
+        void this.openBrainView();
+      },
+    });
     this.addSettingTab(new RelatedSettingsTab(this.app, this));
     this.addCommand({
       id: 'open-view',
@@ -51,7 +63,19 @@ export default class RelatedPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
       if (leaf.view instanceof RelatedView) leaf.view.invalidate();
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(BRAIN_VIEW_TYPE)) {
+      if (leaf.view instanceof BrainView) leaf.view.invalidate();
+    }
     this.schedule();
+  }
+  private async openBrainView(): Promise<void> {
+    if (this.unloaded) return;
+    let leaf = this.app.workspace.getLeavesOfType(BRAIN_VIEW_TYPE)[0];
+    if (!leaf) {
+      leaf = this.app.workspace.getLeaf('tab');
+      await leaf.setViewState({ type: BRAIN_VIEW_TYPE, active: true });
+    }
+    if (!this.unloaded) await this.app.workspace.revealLeaf(leaf);
   }
   private schedule(): void {
     clearTimeout(this.timer);
