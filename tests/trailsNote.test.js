@@ -6,7 +6,7 @@ import { renderTrailsNote, writeTrailsNote } from '../src/trails/note.js';
 const input = {
   notePath: 'notes/Brain trails.md',
   now: new Date('2026-10-31T06:30:05Z'),
-  tz: 'America/Halifax',
+  tz: 'Atlantic/Bermuda',
   minWeight: 1,
   maxSources: 2,
   perNote: 2,

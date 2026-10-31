@@ -10,7 +10,7 @@ import { scanOnce } from '../src/index/scanner.js';
 // The classic mistake: an unquoted value that contains ": " is not valid YAML.
 const BAD = `---
 title: Broken
-summary: Finished the second brain: fixed the settings
+summary: Finished the garden plan: fixed the settings
 tags: [a]
 ---
 # Broken
@@ -18,8 +18,8 @@ tags: [a]
 Body text that is still worth indexing.
 `;
 const GOOD = BAD.replace(
-  'summary: Finished the second brain: fixed the settings',
-  'summary: "Finished the second brain: fixed the settings"'
+  'summary: Finished the garden plan: fixed the settings',
+  'summary: "Finished the garden plan: fixed the settings"'
 );
 
 describe('parseFrontmatter error reporting', () => {

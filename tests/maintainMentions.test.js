@@ -21,11 +21,11 @@ describe('mention prose', () => {
     expect(text).toContain('See');
   });
   it('matches whole words case-insensitively, with hyphens as word characters', () => {
-    expect(mentions('Deployed kindling-splash today.', 'kindling')).toBe(false);
-    expect(mentions('The pre-kindling step.', 'kindling')).toBe(false);
-    expect(mentions('Kindling shipped.', 'kindling')).toBe(true);
-    expect(mentions('kindling-splash shipped.', 'kindling-splash')).toBe(true);
-    expect(mentions('rekindling', 'kindling')).toBe(false);
+    expect(mentions('Deployed lantern-site today.', 'lantern')).toBe(false);
+    expect(mentions('The pre-lantern step.', 'lantern')).toBe(false);
+    expect(mentions('Lantern shipped.', 'lantern')).toBe(true);
+    expect(mentions('lantern-site shipped.', 'lantern-site')).toBe(true);
+    expect(mentions('lanternlight', 'lantern')).toBe(false);
     expect(mentions('the apple\npie', 'Apple Pie')).toBe(true);
     expect(mentions('C++ notes', 'C++')).toBe(true);
   });

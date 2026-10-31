@@ -202,7 +202,7 @@ describe('authMiddleware', () => {
 
 describe('authMiddleware with requireTailscaleLogin', () => {
   const API_KEY = 'test-secret-key-12345';
-  const LOGIN = 'Josh@example.com';
+  const LOGIN = 'User@example.com';
   let res;
   let next;
 
@@ -214,7 +214,7 @@ describe('authMiddleware with requireTailscaleLogin', () => {
   it('allows a matching login (case-insensitive) with a valid key', () => {
     const middleware = authMiddleware({ apiKey: API_KEY, requireTailscaleLogin: LOGIN });
     const req = {
-      headers: { authorization: `Bearer ${API_KEY}`, 'tailscale-user-login': 'josh@EXAMPLE.com' },
+      headers: { authorization: `Bearer ${API_KEY}`, 'tailscale-user-login': 'user@EXAMPLE.com' },
       query: {},
     };
 

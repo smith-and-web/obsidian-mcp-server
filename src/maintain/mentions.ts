@@ -36,7 +36,7 @@ export function bodyText(content: string): string {
 
 /**
  * True when `name` appears in `text` as a whole word, ignoring case. Hyphens count as word
- * characters, so `kindling` does not match inside `kindling-splash`; any run of whitespace in
+ * characters, so `lantern` does not match inside `lantern-site`; any run of whitespace in
  * the name matches any run in the text.
  */
 export function mentions(text: string, name: string): boolean {

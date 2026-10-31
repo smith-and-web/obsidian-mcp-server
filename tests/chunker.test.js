@@ -2,14 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { chunkNote, extractWikilinks, deriveTitle, estimateTokens } from '../src/index/chunker.js';
 
 const NOTE = `---
-title: ubuntubox NFS gate
+title: host-a NFS gate
 type: area
 tags: [infra, nas]
-summary: Docker on ubuntubox waits for /dsm via a RequiresMountsFor drop-in.
+summary: Docker on host-a waits for /mnt/data via a RequiresMountsFor drop-in.
 ---
-# ubuntubox
+# host-a
 
-Intro paragraph about the host. See [[Areas/minipc|the other box]] and [[docs/backups#Schedule]].
+Intro paragraph about the host. See [[notes/host-b|the other box]] and [[docs/backups#Schedule]].
 
 ## Storage
 
@@ -22,7 +22,7 @@ mount | grep dsm
 
 ### Docker waits for the mount
 
-RequiresMountsFor=/dsm in a drop-in.
+RequiresMountsFor=/mnt/data in a drop-in.
 
 ## DNS
 
@@ -31,41 +31,41 @@ AdGuard first, router second.
 
 describe('chunkNote', () => {
   it('produces a head chunk with title, summary and tags', () => {
-    const { chunks, title } = chunkNote(NOTE, 'Areas/ubuntubox.md');
-    expect(title).toBe('ubuntubox NFS gate');
+    const { chunks, title } = chunkNote(NOTE, 'notes/host-a.md');
+    expect(title).toBe('host-a NFS gate');
     expect(chunks[0].ord).toBe(0);
     expect(chunks[0].headingPath).toBe('');
-    expect(chunks[0].content).toContain('ubuntubox NFS gate');
+    expect(chunks[0].content).toContain('host-a NFS gate');
     expect(chunks[0].content).toContain('RequiresMountsFor drop-in');
     expect(chunks[0].content).toContain('Tags: infra, nas');
   });
 
   it('splits on headings up to H3 and carries the breadcrumb', () => {
-    const { chunks } = chunkNote(NOTE, 'Areas/ubuntubox.md');
+    const { chunks } = chunkNote(NOTE, 'notes/host-a.md');
     const paths = chunks.map(c => c.headingPath);
     expect(paths).toEqual([
       '',
-      'ubuntubox',
-      'ubuntubox › Storage',
-      'ubuntubox › Storage › Docker waits for the mount',
-      'ubuntubox › DNS',
+      'host-a',
+      'host-a › Storage',
+      'host-a › Storage › Docker waits for the mount',
+      'host-a › DNS',
     ]);
     const docker = chunks[3];
-    expect(
-      docker.content.startsWith('ubuntubox NFS gate › ubuntubox › Storage › Docker waits')
-    ).toBe(true);
-    expect(docker.content).toContain('RequiresMountsFor=/dsm');
+    expect(docker.content.startsWith('host-a NFS gate › host-a › Storage › Docker waits')).toBe(
+      true
+    );
+    expect(docker.content).toContain('RequiresMountsFor=/mnt/data');
   });
 
   it('does not treat # inside a code fence as a heading', () => {
-    const { chunks } = chunkNote(NOTE, 'Areas/ubuntubox.md');
-    const storage = chunks.find(c => c.headingPath === 'ubuntubox › Storage');
+    const { chunks } = chunkNote(NOTE, 'notes/host-a.md');
+    const storage = chunks.find(c => c.headingPath === 'host-a › Storage');
     expect(storage.content).toContain('# not a heading');
     expect(chunks.some(c => c.headingPath.includes('not a heading'))).toBe(false);
   });
 
   it('numbers chunks consecutively', () => {
-    const { chunks } = chunkNote(NOTE, 'Areas/ubuntubox.md');
+    const { chunks } = chunkNote(NOTE, 'notes/host-a.md');
     expect(chunks.map(c => c.ord)).toEqual([0, 1, 2, 3, 4]);
   });
 

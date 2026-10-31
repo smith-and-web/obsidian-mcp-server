@@ -640,7 +640,7 @@ export function getToolDefinitions({
 const feedbackToolDefinition: ToolDefinition = {
   name: 'search-feedback',
   description:
-    'Record how useful a search was. Call once after answering from semantic-search, similar-notes or search-vault results: pass the requestId, a rating, and the paths you relied on. Use source "user" only when Josh himself said the answer was right or wrong, with expectedPaths for the notes that should have been found.',
+    'Record how useful a search was. Call once after answering from semantic-search, similar-notes or search-vault results: pass the requestId, a rating, and the paths you relied on. Use source "user" only when the user said the answer was right or wrong, with expectedPaths for the notes that should have been found.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -696,7 +696,7 @@ const maintenanceToolDefinitions: ToolDefinition[] = [
   {
     name: 'maintenance-decision',
     description:
-      "Record Josh's decision on a brain maintenance finding (the f<id> items in the weekly maintenance report). Call it only when Josh has said to accept or reject that finding. Accepting changes no note.",
+      "Record the user's decision on a brain maintenance finding (the f<id> items in the weekly maintenance report). Call it only when the user has said to accept or reject that finding. Accepting changes no note.",
     inputSchema: {
       type: 'object',
       properties: {
