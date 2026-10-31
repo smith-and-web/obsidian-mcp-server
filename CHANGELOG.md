@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-30
+
+### Added
+- Authenticated, read-only `GET /api/graph` returns collection notes, resolved links, read-together trails and heat without writing learning events.
+- Brain main-area tab in MCP Related Notes, opened from the brain ribbon icon or **Open brain view** command: seeded 3D hemispheres, glowing notes, curved connections, hub colours and labels, heat brightness and read-together impulses.
+- Hover traces neighbours; click opens a note, modifier-click opens a new tab. Refresh bypasses the ten-minute in-memory cache. Hidden views pause rendering and closing releases graphics resources.
+
 ## [1.14.0] - 2026-10-30
 
 ### Added
