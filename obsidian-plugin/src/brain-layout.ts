@@ -131,8 +131,11 @@ export function layout(
         const dx = b.x - a.x,
           dy = b.y - a.y,
           dz = b.z - a.z,
-          d = Math.hypot(dx, dy, dz) + 1e-6,
           min = 3.2;
+        // A pair separated by min on any axis cannot overlap. Keep the exact
+        // prototype distance and relaxation for every possible overlap.
+        if (Math.abs(dx) >= min || Math.abs(dy) >= min || Math.abs(dz) >= min) continue;
+        const d = Math.hypot(dx, dy, dz) + 1e-6;
         if (d < min) {
           const s = ((min - d) / d) * 0.5;
           a.x -= dx * s;
