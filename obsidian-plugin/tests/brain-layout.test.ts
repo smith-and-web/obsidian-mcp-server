@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildModel, seededRandom } from '../src/brain-model';
-import { layout, BRAIN } from '../src/brain-layout';
+import { layout, BRAIN, VOLUME } from '../src/brain-layout';
 import type { GraphResponse } from '../src/graph-parse';
 
 function graph(count: number): GraphResponse {
@@ -39,14 +39,76 @@ describe('layout', () => {
       expect([...result].every(Number.isFinite)).toBe(true);
     }
   });
-  it('keeps nodes on a hemisphere side and out of the fissure allowing 3.2 units of relaxation', () => {
+  it('keeps every node inside one brain-proportioned volume, allowing 3.2 units of relaxation', () => {
     const positions = layout(buildModel(graph(160)));
-    const signs = new Set<number>();
+    const slack = 3.2 / (VOLUME.ry * BRAIN);
     for (let i = 0; i < positions.length; i += 3) {
-      signs.add(Math.sign(positions[i]));
-      expect(Math.abs(positions[i])).toBeGreaterThanOrEqual(0.04 * BRAIN - 3.2);
+      const x = positions[i] / (VOLUME.rx * BRAIN),
+        y = (positions[i + 1] - VOLUME.lift * BRAIN) / (VOLUME.ry * BRAIN),
+        z = positions[i + 2] / (VOLUME.rz * BRAIN);
+      expect(Math.hypot(x, y, z)).toBeLessThanOrEqual(1 + slack);
     }
-    expect(signs).toEqual(new Set([-1, 1]));
+  });
+  it('does not split a densely linked cluster into two sides', () => {
+    const count = 50;
+    const g: GraphResponse = {
+      nodes: Array.from({ length: count }, (_, i) => ({
+        path: `notes/c${i}.md`,
+        title: `C${i}`,
+        type: i === 0 ? 'project' : '',
+        up: [],
+        heat: 0,
+        score: 0,
+      })),
+      links: [],
+      trails: [],
+    };
+    for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j += 3) g.links.push([i, j]);
+    const positions = layout(buildModel(g));
+    for (const axis of [0, 1, 2]) {
+      const v: number[] = [];
+      for (let i = axis; i < positions.length; i += 3) v.push(positions[i]);
+      v.sort((a, b) => a - b);
+      let gap = 0;
+      for (let i = 1; i < v.length; i++) gap = Math.max(gap, v[i] - v[i - 1]);
+      expect(gap).toBeLessThan(0.15 * BRAIN);
+    }
+  });
+  it('keeps linked notes closer than unlinked ones', () => {
+    const size = 40;
+    const g: GraphResponse = {
+      nodes: Array.from({ length: size * 2 }, (_, i) => ({
+        path: `notes/g${i}.md`,
+        title: `G${i}`,
+        type: i % size === 0 ? 'project' : '',
+        up: [],
+        heat: 0,
+        score: 0,
+      })),
+      links: [[0, size]],
+      trails: [],
+    };
+    for (const base of [0, size])
+      for (let i = 0; i < size; i++)
+        for (let j = i + 1; j < size; j += 4) g.links.push([base + i, base + j]);
+    const p = layout(buildModel(g));
+    const dist = (a: number, b: number) =>
+      Math.hypot(p[a * 3] - p[b * 3], p[a * 3 + 1] - p[b * 3 + 1], p[a * 3 + 2] - p[b * 3 + 2]);
+    let inside = 0,
+      across = 0,
+      ni = 0,
+      na = 0;
+    for (let a = 0; a < size * 2; a++)
+      for (let b = a + 1; b < size * 2; b++) {
+        if (Math.floor(a / size) === Math.floor(b / size)) {
+          inside += dist(a, b);
+          ni++;
+        } else {
+          across += dist(a, b);
+          na++;
+        }
+      }
+    expect(inside / ni).toBeLessThan(0.7 * (across / na));
   });
   it('respects a 200ms tick budget on a 2,000-node random graph in under 1s', () => {
     const model = buildModel(graph(2000));
