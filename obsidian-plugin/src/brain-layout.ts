@@ -68,7 +68,14 @@ export function layout(
     vy: 0,
     vz: 0,
   }));
-  const links = model.links.map(l => ({ a: nodes[l.a.i], b: nodes[l.b.i] }));
+  // d3-force's link weighting: a spring's strength is divided by the quieter end's link count, and the busier
+  // end takes the smaller share of the correction. With a constant strength a note linked to ~200 others summed
+  // more pull than one tick can absorb, overshot, and the whole layout collapsed into tight balls (2026-11-02).
+  const links = model.links.map(l => {
+    const da = Math.max(1, l.a.deg),
+      db = Math.max(1, l.b.deg);
+    return { a: nodes[l.a.i], b: nodes[l.b.i], s: 1 / Math.min(da, db), bias: da / (da + db) };
+  });
   nodes.forEach(n => {
     const u = rand() * 2 - 1,
       th = rand() * Math.PI * 2,
@@ -101,13 +108,15 @@ export function layout(
         dy = l.b.y - l.a.y,
         dz = l.b.z - l.a.z,
         d = Math.sqrt(dx * dx + dy * dy + dz * dz) + 0.01;
-      const k = ((d - 26) / d) * 0.025 * alpha;
-      l.a.vx += dx * k;
-      l.a.vy += dy * k;
-      l.a.vz += dz * k;
-      l.b.vx -= dx * k;
-      l.b.vy -= dy * k;
-      l.b.vz -= dz * k;
+      const k = ((d - 26) / d) * 0.6 * l.s * alpha,
+        ka = k * (1 - l.bias),
+        kb = k * l.bias;
+      l.a.vx += dx * ka;
+      l.a.vy += dy * ka;
+      l.a.vz += dz * ka;
+      l.b.vx -= dx * kb;
+      l.b.vy -= dy * kb;
+      l.b.vz -= dz * kb;
     }
     for (const n of nodes) {
       const lobe = n.lobe === null ? null : nodes[n.lobe];
