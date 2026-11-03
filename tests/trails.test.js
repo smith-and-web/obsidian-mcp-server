@@ -12,7 +12,8 @@ const run = DB ? describe : describe.skip;
 run('trails against pgvector', () => {
   let root, store, pool, config;
   const collection = `trails-${process.pid}-${Date.now()}`;
-  const now = new Date('2026-11-01T12:00:00Z');
+  // Ahead of the real clock: fixtures are written now, and a pinned past date makes their mtimes look recent.
+  const now = new Date(Date.now() + 3600000);
   const before = days => new Date(now.getTime() - days * 86400000);
   const rebuild = () =>
     store.rebuildTrailsAndHeat({

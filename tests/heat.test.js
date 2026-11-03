@@ -4,7 +4,8 @@ import os from 'os';
 import path from 'path';
 import { atomicFrontmatterEdit, sameExceptKey } from '../src/vault/atomicEdit.js';
 import { setFrontmatterField } from '../src/vault/frontmatter.js';
-const now = new Date('2026-11-01T12:00:00Z');
+// Ahead of the real clock: fixtures are written now, and a pinned past date makes their mtimes look recent.
+const now = new Date(Date.now() + 3600000);
 const opts = { now, minAgeMs: 0, onlyKey: 'heat' };
 const edit = doc => setFrontmatterField(doc, 'heat', 3);
 let root;
@@ -111,7 +112,7 @@ describe('heat writer', () => {
     };
     expect((await writeHeat(store, config(), { now, clear: false })).heatWrites).toBe(1);
     expect(
-      (await writeHeat(store, config(), { now: new Date('2027-01-01'), clear: false }))
+      (await writeHeat(store, config(), { now: new Date(now.getTime() + 86400000), clear: false }))
         .heatUnchanged
     ).toBe(1);
     expect(

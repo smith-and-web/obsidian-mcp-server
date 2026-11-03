@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.2] - 2026-11-02
+
+### Fixed
+- Brain view layout: a note linked to hundreds of others (a code-graph ingest's map notes) summed more spring pull
+  than one simulation tick can absorb, so the layout overshot and every group collapsed into a dense ball flung to
+  the rim. Links now use d3-force's weighting: strength divided by the quieter end's link count, and the busier end
+  takes the smaller share of each correction. A new test fails on the old springs (groups ~0.04 of the volume across).
+
 ## [1.15.1] - 2026-10-31
 
 ### Changed

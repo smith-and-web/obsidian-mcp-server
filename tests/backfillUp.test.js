@@ -11,7 +11,8 @@ const run = DB ? describe : describe.skip;
 run('backfill-up against pgvector', () => {
   let root, service, pool, planFile;
   const collection = `backfill-${process.pid}-${Date.now()}`;
-  const now = new Date('2026-11-01T12:00:00Z');
+  // Ahead of the real clock: fixtures are written now, and a pinned past date makes their mtimes look recent.
+  const now = new Date(Date.now() + 3600000);
   const note = (title, type, body, extra = '') =>
     `---\ntitle: ${title}\ntype: ${type}\nupdated: "2026-10-01"\naliases: []\n${extra}---\n${body}\n`;
   const file = n => path.join(root, `notes/${n}.md`);
@@ -203,7 +204,7 @@ describe('backfill write guards', () => {
         {},
         { vaultPath: root },
         { plan, apply: true, revert: false },
-        { now: new Date('2027-01-01'), log: l => lines.push(l) }
+        { now: new Date(Date.now() + 86400000), log: l => lines.push(l) }
       );
       expect(injected).toBe(true);
       expect(lines[0]).toBe(
@@ -228,7 +229,7 @@ describe('backfill write guards', () => {
           { backfillUpCandidates: async () => [] },
           { vaultPath: root },
           { plan, apply: false, revert: false, field: 'up', hubTypes: [], childTypes: [], max: 3 },
-          { now: new Date('2027-01-01'), log: () => {} }
+          { now: new Date(Date.now() + 86400000), log: () => {} }
         )
       ).rejects.toThrow();
       expect(await fs.readFile(victim, 'utf8')).toBe('keep');
@@ -259,7 +260,7 @@ describe('backfill write guards', () => {
           {},
           { vaultPath: root },
           { plan, apply: true, revert: false },
-          { now: new Date('2027-01-01'), log: () => {} }
+          { now: new Date(Date.now() + 86400000), log: () => {} }
         )
       ).rejects.toThrow('escapes vault');
       expect(await fs.readFile(path.join(outside, 'notes/child.md'), 'utf8')).toBe(text);
