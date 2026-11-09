@@ -64,6 +64,16 @@ run('maintenance false positives', () => {
       'notes/Launch page.md',
       note('Launch page', 'reference', 'Deployed lantern-site yesterday.')
     );
+    const graphNote = (title, part) =>
+      `---\ntitle: ${title}\ntype: reference\ntags: [code-graph, lantern-code-graph]\nsummary: "Part ${part} of the gadget export map"\nindex: true\naliases: []\n---\n# ${title}\n\n${exportBody} part ${part}. The sprocket turns.\n\n[[Missing map target]]\n`;
+    await write(
+      'notes/Lantern code - export map (1).md',
+      graphNote('Lantern code - export map (1)', 1)
+    );
+    await write(
+      'notes/Lantern code - export map (2).md',
+      graphNote('Lantern code - export map (2)', 2)
+    );
     await write(
       'Journal/2026-01-05.md',
       note('2026-01-05', 'journal', `The sprocket turns. lantern shipped. ${widgetBody}`)
@@ -125,6 +135,20 @@ run('maintenance false positives', () => {
   it('does not match a name inside a hyphenated word', async () => {
     const mentions = await service.store.findUnlinkedMentions(vaultMentionVerifier(root));
     expect(has(mentions, 'notes/Launch page.md', 'notes/lantern.md')).toBe(false);
+  });
+  it('gives code-graph notes no findings of any class', async () => {
+    const store = service.store;
+    const all = [
+      ...(await store.findMissingLinks(0.5)),
+      ...(await store.findUnlinkedMentions(vaultMentionVerifier(root))),
+      ...(await store.findLinkRepairs()),
+      ...(await store.findMissingFrontmatter()),
+      ...(await store.findNearDuplicates(0.5, 0.6)),
+    ];
+    expect(all.length).toBeGreaterThan(0);
+    for (const c of all) expect(c.paths.some(p => p.includes('Lantern code - '))).toBe(false);
+    const hygiene = await store.hygieneMetrics();
+    expect(hygiene.excludedNotes).toBe(2);
   });
   it('gives Journal notes no link findings', async () => {
     const mentions = await service.store.findUnlinkedMentions(vaultMentionVerifier(root));

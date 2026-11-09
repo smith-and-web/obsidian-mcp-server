@@ -144,6 +144,8 @@ export interface IndexStoreOptions {
   collection: string;
   readOnly?: boolean;
   pgOptions?: string;
+  /** Notes carrying any of these tags get no maintenance findings (default: code-graph). */
+  maintainExcludeTags?: string[];
 }
 
 function toSqlVector(v: number[]): string {
@@ -191,6 +193,7 @@ export interface Hygiene {
   unresolvedLinks: number;
   orphans: number;
   invalidFrontmatter: number;
+  excludedNotes: number;
   nearDuplicatePairs: number;
   missingLinkPairs: number;
 }
@@ -214,6 +217,7 @@ export class IndexStore {
   private trailsSearches = 0;
   private trailsWaiters: (() => void)[] = [];
   readonly collection: string;
+  private readonly maintainExcludeTags: string[];
 
   constructor(options: IndexStoreOptions) {
     const opts = [options.readOnly ? '-c default_transaction_read_only=on' : '', options.pgOptions]
@@ -225,6 +229,7 @@ export class IndexStore {
       ...(opts ? { options: opts } : {}),
     });
     this.collection = options.collection;
+    this.maintainExcludeTags = options.maintainExcludeTags ?? ['code-graph'];
   }
 
   async close(): Promise<void> {
@@ -589,12 +594,26 @@ FROM scores;`,
     });
   }
 
+  /**
+   * Maintenance eligibility: not a journal or inbox note, and not tagged with an excluded tag.
+   * Generated notes (code graphs) are re-rendered by their own tool, so fixes to them would be
+   * overwritten and their sibling parts would swamp the report.
+   */
+  private eligible(alias: string): string {
+    return `${eligible(alias)} AND NOT ${this.excludedByTag(alias)}`;
+  }
+  private excludedByTag(alias: string): string {
+    if (!this.maintainExcludeTags.length) return 'false';
+    const list = this.maintainExcludeTags.map(t => `'${t.replace(/'/g, "''")}'`).join(',');
+    return `coalesce(${alias}.tags && ARRAY[${list}]::text[], false)`;
+  }
+
   async findMissingLinks(minCosine: number): Promise<Candidate[]> {
     const result = await this.pool.query(
       `SELECT ARRAY[a.path,b.path] AS paths,
       jsonb_build_object('cosine', round((1-(a.centroid <=> b.centroid))::numeric,4)) AS detail
       FROM documents a JOIN documents b ON a.id < b.id AND b.collection = a.collection
-      WHERE a.collection = $1 AND ${eligible('a')} AND ${eligible('b')}
+      WHERE a.collection = $1 AND ${this.eligible('a')} AND ${this.eligible('b')}
         AND ${outsideJournal('a')} AND ${outsideJournal('b')}
         AND 1-(a.centroid <=> b.centroid) > $2 AND ${unlinked('a', 'b')}
       ORDER BY 1-(a.centroid <=> b.centroid) DESC, a.path, b.path`,
@@ -617,7 +636,7 @@ FROM scores;`,
     JOIN documents a ON a.collection = t.collection AND a.path = t.path_a
     JOIN documents b ON b.collection = t.collection AND b.path = t.path_b
     WHERE t.collection = $1 AND t.weight >= $2 AND t.events >= $3
-      AND ${eligible('a')} AND ${eligible('b')}
+      AND ${this.eligible('a')} AND ${this.eligible('b')}
       AND ${outsideJournal('a')} AND ${outsideJournal('b')}
       AND ${unlinked('a', 'b')}
     ORDER BY t.weight DESC, t.path_a, t.path_b`;
@@ -639,7 +658,8 @@ FROM scores;`,
         coalesce(1-(src.centroid <=> dst.centroid),0) AS cosine
       FROM names n JOIN documents dst ON dst.id=n.id
       JOIN documents src ON src.collection=dst.collection AND src.id<>dst.id
-      WHERE dst.collection=$1 AND ${eligible('dst')} AND length(n.name)>=4
+      WHERE dst.collection=$1 AND ${this.eligible('dst')} AND NOT ${this.excludedByTag('src')}
+        AND length(n.name)>=4
         AND ${outsideJournal('src')} AND ${outsideJournal('dst')}
         AND EXISTS (SELECT 1 FROM chunks c WHERE c.document_id=src.id AND c.ord>0
           AND c.tsv @@ phraseto_tsquery('english',n.name)) AND ${unlinked('src', 'dst')}
@@ -663,6 +683,7 @@ FROM scores;`,
     const result = await this.pool.query(
       `WITH matches AS (
       SELECT src.path AS source,l.target_path,dst.path AS target,dst.frontmatter,
+        ${this.excludedByTag('src')} AS src_excluded,
         count(*) OVER (PARTITION BY src.id,l.target_path) AS matches
       FROM links l JOIN documents src ON src.id=l.src_document_id
       JOIN documents dst ON dst.collection=src.collection AND (
@@ -673,6 +694,7 @@ FROM scores;`,
       WHERE src.collection=$1 AND l.target_document_id IS NULL
     ) SELECT DISTINCT ARRAY[source,target] AS paths,jsonb_build_object('target',target_path) AS detail
       FROM matches WHERE matches=1 AND coalesce(frontmatter->>'type','') NOT IN ('journal','inbox')
+        AND NOT src_excluded
       ORDER BY paths`,
       [this.collection]
     );
@@ -684,7 +706,7 @@ FROM scores;`,
       `SELECT ARRAY[d.path] AS paths,
       jsonb_build_object('fields',ARRAY(SELECT f FROM unnest(ARRAY['aliases','index']) f
         WHERE NOT (d.frontmatter ? f) ORDER BY f)) AS detail
-      FROM documents d WHERE d.collection=$1 AND ${eligible('d')}
+      FROM documents d WHERE d.collection=$1 AND ${this.eligible('d')}
         AND (NOT (d.frontmatter ? 'index') OR NOT (d.frontmatter ? 'aliases')) ORDER BY d.path`,
       [this.collection]
     );
@@ -696,7 +718,7 @@ FROM scores;`,
       `WITH history AS (
       SELECT d.path,h.*,row_number() OVER w AS rn,first_value(h.summary) OVER w AS current_summary
       FROM documents d JOIN doc_history h ON h.document_id=d.id
-      WHERE d.collection=$1 AND ${eligible('d')}
+      WHERE d.collection=$1 AND ${this.eligible('d')}
       WINDOW w AS (PARTITION BY d.id ORDER BY h.at DESC,h.id DESC)
     ), bounds AS (
       SELECT document_id, min(rn) FILTER (WHERE summary IS DISTINCT FROM current_summary) AS stop
@@ -721,7 +743,7 @@ FROM scores;`,
       jsonb_build_object('cosine',round((1-(a.centroid <=> b.centroid))::numeric,4),
         'titleSimilarity',round(similarity(lower(a.title),lower(b.title))::numeric,4)) AS detail
       FROM documents a JOIN documents b ON a.id<b.id AND b.collection=a.collection
-      WHERE a.collection=$1 AND ${eligible('a')} AND ${eligible('b')}
+      WHERE a.collection=$1 AND ${this.eligible('a')} AND ${this.eligible('b')}
         AND (1-(a.centroid <=> b.centroid)>$2 OR similarity(lower(a.title),lower(b.title))>$3)
         AND ${unlinked('a', 'b')}
         AND NOT (a.frontmatter->>'type' = 'plan' AND b.frontmatter->>'type' = 'plan')
@@ -740,7 +762,7 @@ FROM scores;`,
       FROM documents d WHERE d.collection=$1
     ), hubs AS (
       SELECT DISTINCT ON (h.id) h.path,h.updated,n.path AS newest,n.updated AS newest_updated
-      FROM dated h JOIN dated n ON h.id<>n.id AND ${eligible('n')}
+      FROM dated h JOIN dated n ON h.id<>n.id AND ${this.eligible('n')}
         AND EXISTS (SELECT 1 FROM links l WHERE (l.src_document_id=h.id AND l.target_document_id=n.id)
           OR (l.src_document_id=n.id AND l.target_document_id=h.id))
       WHERE h.frontmatter->>'type' IN ('project','area') AND h.updated IS NOT NULL AND n.updated IS NOT NULL
@@ -758,10 +780,12 @@ FROM scores;`,
     const result = await this.pool.query(
       `SELECT count(*)::int AS documents,
       count(*) FILTER (WHERE d.frontmatter_error IS NOT NULL)::int AS "invalidFrontmatter",
-      count(*) FILTER (WHERE ${eligible('d')} AND NOT EXISTS (SELECT 1 FROM links l
+      count(*) FILTER (WHERE ${this.excludedByTag('d')})::int AS "excludedNotes",
+      count(*) FILTER (WHERE ${this.eligible('d')} AND NOT EXISTS (SELECT 1 FROM links l
         WHERE l.target_document_id=d.id AND l.src_document_id<>d.id))::int AS orphans,
       (SELECT count(*)::int FROM links l JOIN documents src ON src.id=l.src_document_id
-        WHERE src.collection=$1 AND l.target_document_id IS NULL) AS "unresolvedLinks"
+        WHERE src.collection=$1 AND l.target_document_id IS NULL
+          AND NOT ${this.excludedByTag('src')}) AS "unresolvedLinks"
       FROM documents d WHERE d.collection=$1`,
       [this.collection]
     );

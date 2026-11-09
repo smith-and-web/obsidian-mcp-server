@@ -13,6 +13,7 @@ export interface MaintainConfig {
   maxPerClass: number;
   coreadMinWeight: number;
   coreadMinEvents: number;
+  excludeTags: string[];
 }
 
 /** Parse worker configuration without throwing; dry runs need no writable report directory. */
@@ -47,8 +48,19 @@ export function readMaintainConfig(
       return {
         error: `Invalid MAINTAIN_COREAD_MIN_WEIGHT=${env.MAINTAIN_COREAD_MIN_WEIGHT}: expected a number from 0 to 1000, exclusive of 0`,
       };
+    const rawTags = env.MAINTAIN_EXCLUDE_TAGS ?? 'code-graph';
+    const excludeTags = rawTags
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    const badTag = excludeTags.find(t => !/^[a-z0-9][a-z0-9/_-]*$/.test(t));
+    if (badTag)
+      return {
+        error: `Invalid MAINTAIN_EXCLUDE_TAGS tag "${badTag}": expected lowercase letters, digits, -, _ or /`,
+      };
     return {
       config: {
+        excludeTags,
         databaseUrl: env.DATABASE_URL!,
         collection: env.INDEX_COLLECTION || 'default',
         vaultPath: env.VAULT_PATH!,

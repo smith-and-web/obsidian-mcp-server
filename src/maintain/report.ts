@@ -138,6 +138,7 @@ export function renderReport(input: ReportInput): string {
     ['unresolvedLinks', 'Unresolved links'],
     ['orphans', 'Orphans'],
     ['invalidFrontmatter', 'Invalid frontmatter'],
+    ['excludedNotes', 'Excluded by tag (no findings)'],
     ['nearDuplicatePairs', 'Near-duplicate pairs'],
     ['missingLinkPairs', 'Missing-link pairs'],
   ];

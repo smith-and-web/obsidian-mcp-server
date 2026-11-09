@@ -6,6 +6,7 @@ const metrics = {
   unresolvedLinks: 1,
   orphans: 2,
   invalidFrontmatter: 0,
+  excludedNotes: 3,
   nearDuplicatePairs: 1,
   missingLinkPairs: 1,
   findings: { open: 7, accepted: 0, rejected: 0, resolved: 0 },
