@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Query-click rerank, `SEARCH_CLICKS=off|shadow|on` (default `off`) with `SEARCH_CLICKS_TAU` (0.8),
+  `SEARCH_CLICKS_W` (0.5), `SEARCH_CLICKS_C` (1) and `SEARCH_CLICKS_WINDOW_DAYS` (30). Candidates that earlier
+  searches with a similar query embedding led to reads of gain `w · t / (t + c) / (rrfK + 1)`, where `t` is the
+  summed cosine; only existing candidates move. `shadow` logs the alternate order in the new
+  `search_log.shadow_clicks` column (`sql/005_clicks.sql`); `learn-report` gains `clicksShadow`; `brain-eval
+  --config` accepts `clicks`. In an offline replay of 571 logged searches it raised first-read MRR from 0.653 to
+  0.667 with golden-v1 unchanged, where no trails setting beat live ranking.
+
 ## [1.16.0] - 2026-11-08
 
 ### Changed

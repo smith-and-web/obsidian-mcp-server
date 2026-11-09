@@ -359,6 +359,11 @@ obsidian-mcp-server/
 | `SEARCH_TRAILS` | `off` | Trails ranking mode: `off`, `shadow` or `on` |
 | `SEARCH_TRAILS_W` | `0.5` | Trails boost weight, finite number greater than 0 and at most 10 |
 | `SEARCH_TRAILS_ANCHORS` | `3` | Number of distinct leading candidate notes used as anchors, integer 1–8 |
+| `SEARCH_CLICKS` | `off` | Query-click ranking mode: `off`, `shadow` or `on` |
+| `SEARCH_CLICKS_TAU` | `0.8` | Minimum query-embedding cosine for a past search to count, between 0 and 1 |
+| `SEARCH_CLICKS_W` | `0.5` | Click boost weight, greater than 0 and at most 10 |
+| `SEARCH_CLICKS_C` | `1` | Saturation constant in `t/(t+c)`, greater than 0 and at most 100 |
+| `SEARCH_CLICKS_WINDOW_DAYS` | `30` | Past searches considered, integer 1–365 (the learn log keeps `LEARN_RETENTION_DAYS`) |
 | `INDEX_INTERVAL_SECONDS` | `60` | Indexer only: seconds between vault scans |
 | `INDEX_VERBOSE` | `false` | Indexer only: log every file indexed or removed |
 | `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
@@ -914,6 +919,28 @@ searches in the report window that have a shadow and at least one linked read.
 changes, and `mrrLive` / `mrrShadow` average the reciprocal rank of each search's
 first-read note (zero if absent). Repeated chunks use the note's minimum rank.
 Empty-window rates are `null`, and nonempty rates are rounded to four decimals.
+
+## Query-click shadow ranking
+
+Query clicks rerank existing candidates by what earlier, similar searches led to. For a
+search with a query embedding, every logged search in the last `SEARCH_CLICKS_WINDOW_DAYS`
+whose query embedding has cosine ≥ `SEARCH_CLICKS_TAU` contributes its cosine once to each
+note it led to a read of (`note_reads.request_id`). With `t` the summed cosine for a note,
+every chunk of that note gains `w · t / (t + c) / (rrfK + 1)`, after the per-note cap and
+after trails. Candidates are never added or dropped; ties keep the live order. Redacted
+searches have no embedding and never count. Text-mode searches skip the lookup.
+
+`off` (the default) runs no lookup. `shadow` returns the same live results and ranker id and
+logs the alternate top-k order in `search_log.shadow_clicks` (`sql/005_clicks.sql`), in the
+same `{ ranker, results: [{ path, ord, rank }] }` shape as the trails shadow; this needs
+learn logging. `on` returns the boosted order and adds `-ck<tau>w<w>c<c>` to the ranker id.
+The lookup runs under a savepoint, so a failure is logged and leaves the search unchanged.
+It is a bounded scan of the window (about 9 ms for 5,000 1024-dimension rows).
+
+`learn-report` includes a **Clicks shadow** section (`clicksShadow` in JSON) with the same
+fields and definitions as the trails shadow. `brain-eval --config
+'{"clicks":{"tau":0.8,"w":0.5,"c":1}}'` evaluates it offline (optional `windowDays`); note that
+golden queries see every logged search, so use logged usage as the primary gate.
 
 Evaluate trails independently of the existing ranking grid:
 

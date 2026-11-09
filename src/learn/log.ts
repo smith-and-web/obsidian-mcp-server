@@ -62,6 +62,7 @@ export class LearnLog {
     ranker: string;
     results: unknown[];
     shadow?: SearchShadow | null;
+    shadowClicks?: SearchShadow | null;
   }): void {
     let redacted = isSensitive(entry.query, this.config.patterns);
     const query = redacted ? null : entry.query;
@@ -93,6 +94,7 @@ export class LearnLog {
         ranker: entry.ranker,
         results: entry.results,
         shadow: entry.shadow ?? null,
+        shadowClicks: entry.shadowClicks ?? null,
       }),
       entry.id
     );

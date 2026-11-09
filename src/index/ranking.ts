@@ -1,4 +1,6 @@
 /** Pure ranking configuration and fusion shared by search and offline evaluation. */
+import { clicksSuffix, type ClicksConfig } from '../search/clicks.js';
+
 export type Fusion = 'rrf' | 'dbsf';
 
 export interface RankingConfig {
@@ -87,9 +89,13 @@ export function capPerNote(hits: FusedHit[], cap: number): FusedHit[] {
   });
 }
 
-export function rankingId(cfg: RankingConfig, trails?: TrailsConfig): string {
+export function rankingId(
+  cfg: RankingConfig,
+  trails?: TrailsConfig,
+  clicks?: ClicksConfig
+): string {
   const prefix = cfg.fusion === 'rrf' ? `rrf-k${cfg.rrfK}` : 'dbsf';
-  return `${prefix}-v${cfg.wVector}-t${cfg.wText}-cap${cfg.perNoteCap}${trails?.mode === 'on' ? `-tr${trails.w}a${trails.anchors}` : ''}`;
+  return `${prefix}-v${cfg.wVector}-t${cfg.wText}-cap${cfg.perNoteCap}${trails?.mode === 'on' ? `-tr${trails.w}a${trails.anchors}` : ''}${clicksSuffix(clicks)}`;
 }
 
 export function rankingEnv(cfg: RankingConfig): Record<string, string> {
