@@ -23,6 +23,11 @@ describe('maintenance configuration', () => {
       coreadMinWeight: 1.5,
       coreadMinEvents: 2,
       excludeTags: ['code-graph'],
+      apply: false,
+      applyWeeklyCap: 20,
+      applyMinAgeHours: 24,
+      guardPatternsFile: '',
+      volatileKeys: ['heat'],
     });
     expect(
       readMaintainConfig({
@@ -76,6 +81,27 @@ describe('maintenance configuration', () => {
       error:
         'Invalid MAINTAIN_EXCLUDE_TAGS tag "x\'y": expected lowercase letters, digits, -, _ or /',
     }));
+  it('MAINTAIN_APPLY is a strict boolean and the guard file falls back to the learn-log file', () => {
+    expect(readMaintainConfig({ ...env, MAINTAIN_APPLY: 'yes' })).toEqual({
+      error: 'Invalid MAINTAIN_APPLY=yes: expected true or false',
+    });
+    const c = readMaintainConfig({
+      ...env,
+      MAINTAIN_APPLY: 'true',
+      LEARN_REDACT_PATTERNS_FILE: '/config/redact.txt',
+      INDEX_VOLATILE_KEYS: 'heat, score',
+    }).config;
+    expect(c.apply).toBe(true);
+    expect(c.guardPatternsFile).toBe('/config/redact.txt');
+    expect(c.volatileKeys).toEqual(['heat', 'score']);
+    expect(
+      readMaintainConfig({
+        ...env,
+        MAINTAIN_GUARD_PATTERNS_FILE: '/g',
+        LEARN_REDACT_PATTERNS_FILE: '/l',
+      }).config.guardPatternsFile
+    ).toBe('/g');
+  });
   it('rejects invalid timezones without throwing', () =>
     expect(readMaintainConfig({ ...env, MAINTAIN_TZ: 'bad/zone' })).toEqual({
       error: 'Invalid MAINTAIN_TZ=bad/zone: expected an IANA time zone',

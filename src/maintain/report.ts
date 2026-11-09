@@ -10,6 +10,24 @@ export interface ClassCounts {
   class: string;
   decided: number;
   accepted: number;
+  /** report-only, apply-on-accept or auto; absent when apply was never configured. */
+  mode?: string;
+  applied?: number;
+  reverted?: number;
+}
+export interface ApplyReport {
+  enabled: boolean;
+  reason: string | null;
+  changes: {
+    id: number;
+    findingId: number | null;
+    class: string;
+    path: string;
+    reverted: boolean;
+  }[];
+  skipped: { findingId: number; class: string; reason: string }[];
+  graduated: string[];
+  demoted: string[];
 }
 export interface ReportInput {
   reportId: string;
@@ -21,6 +39,7 @@ export interface ReportInput {
   decided: FindingRow[];
   classes: ClassCounts[];
   openClasses: number;
+  apply?: ApplyReport;
 }
 
 /** Calendar parts and explicit offset come from the configured zone, never the process zone. */
@@ -164,24 +183,58 @@ export function renderReport(input: ReportInput): string {
       );
     }
   }
+  if (input.apply) {
+    const a = input.apply;
+    lines.push('', '## Applied this week', '');
+    if (!a.enabled) lines.push(`Auto-apply is off (${a.reason}). Accepted findings wait for you.`);
+    else {
+      lines.push(
+        'Each change is undoable while its note is unchanged: `brain-undo <id>` reverts the whole finding.',
+        ''
+      );
+      if (!a.changes.length) lines.push('Nothing applied.');
+      for (const c of a.changes)
+        lines.push(
+          `- c${c.id} · ${c.findingId === null ? '–' : `f${c.findingId}`} · ${c.class} · ${link(c.path)}${c.reverted ? ' · reverted' : ''}`
+        );
+      if (a.graduated.length) lines.push('', `Graduated to auto-apply: ${a.graduated.join(', ')}.`);
+      if (a.demoted.length)
+        lines.push('', `Demoted to report-only (reverts over 10%): ${a.demoted.join(', ')}.`);
+      if (a.skipped.length) {
+        lines.push('', '### Not applied', '');
+        for (const s of a.skipped) lines.push(`- f${s.findingId} · ${s.class} · ${s.reason}`);
+      }
+    }
+  }
   if (input.decided.length) {
     lines.push('', '## Decided since last report', '');
     for (const f of input.decided)
       lines.push(`- f${f.id} · ${f.class} · ${f.status} (${f.decidedVia})`);
   }
-  const decidedClasses = input.classes.filter(c => c.decided > 0);
+  const decidedClasses = input.classes.filter(c => c.decided > 0 || (c.applied ?? 0) > 0);
+  const withMode = decidedClasses.some(c => c.mode !== undefined);
   if (decidedClasses.length) {
     lines.push(
       '',
       '## Acceptance so far',
       '',
-      '| Class | Decided | Accepted | Rate |',
-      '|---|---|---|---|'
+      withMode
+        ? '| Class | Decided | Accepted | Rate | Mode | Applied | Reverted |'
+        : '| Class | Decided | Accepted | Rate |',
+      withMode ? '|---|---|---|---|---|---|---|' : '|---|---|---|---|'
     );
-    for (const c of decidedClasses)
-      lines.push(
-        `| ${c.class} | ${c.decided} | ${c.accepted} | ${Math.round((100 * c.accepted) / c.decided)}% |`
-      );
+    for (const c of decidedClasses) {
+      const rate = c.decided ? `${Math.round((100 * c.accepted) / c.decided)}%` : '–';
+      const base = `| ${c.class} | ${c.decided} | ${c.accepted} | ${rate} |`;
+      if (!withMode) {
+        lines.push(base);
+        continue;
+      }
+      const applied = c.applied ?? 0;
+      const reverted = c.reverted ?? 0;
+      const revert = applied ? ` (${Math.round((100 * reverted) / applied)}%)` : '';
+      lines.push(`${base} ${c.mode ?? 'report-only'} | ${applied} | ${reverted}${revert} |`);
+    }
   }
   return lines.join('\n') + '\n';
 }

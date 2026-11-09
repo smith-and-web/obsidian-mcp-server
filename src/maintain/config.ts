@@ -14,6 +14,14 @@ export interface MaintainConfig {
   coreadMinWeight: number;
   coreadMinEvents: number;
   excludeTags: string[];
+  /** Kill switch: false (default) keeps every class report-only. */
+  apply: boolean;
+  applyWeeklyCap: number;
+  applyMinAgeHours: number;
+  /** Regex lines (secrets, work infrastructure, private terms); a note matching one is never edited. */
+  guardPatternsFile: string;
+  /** Frontmatter keys the indexer leaves out of a note's hash (INDEX_VOLATILE_KEYS). */
+  volatileKeys: string[];
 }
 
 /** Parse worker configuration without throwing; dry runs need no writable report directory. */
@@ -58,9 +66,21 @@ export function readMaintainConfig(
       return {
         error: `Invalid MAINTAIN_EXCLUDE_TAGS tag "${badTag}": expected lowercase letters, digits, -, _ or /`,
       };
+    const applyRaw = env.MAINTAIN_APPLY || 'false';
+    if (applyRaw !== 'true' && applyRaw !== 'false')
+      return { error: `Invalid MAINTAIN_APPLY=${applyRaw}: expected true or false` };
+    const volatileKeys = (env.INDEX_VOLATILE_KEYS ?? 'heat')
+      .split(',')
+      .map(k => k.trim())
+      .filter(Boolean);
     return {
       config: {
         excludeTags,
+        apply: applyRaw === 'true',
+        applyWeeklyCap: numeric('MAINTAIN_APPLY_WEEKLY_CAP', 20, 100),
+        applyMinAgeHours: numeric('MAINTAIN_APPLY_MIN_AGE_HOURS', 24, 720),
+        guardPatternsFile: env.MAINTAIN_GUARD_PATTERNS_FILE || env.LEARN_REDACT_PATTERNS_FILE || '',
+        volatileKeys,
         databaseUrl: env.DATABASE_URL!,
         collection: env.INDEX_COLLECTION || 'default',
         vaultPath: env.VAULT_PATH!,
