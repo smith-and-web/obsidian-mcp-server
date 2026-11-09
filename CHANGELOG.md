@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-11-08
+
 ### Added
 - Query-click rerank, `SEARCH_CLICKS=off|shadow|on` (default `off`) with `SEARCH_CLICKS_TAU` (0.8),
   `SEARCH_CLICKS_W` (0.5), `SEARCH_CLICKS_C` (1) and `SEARCH_CLICKS_WINDOW_DAYS` (30). Candidates that earlier
