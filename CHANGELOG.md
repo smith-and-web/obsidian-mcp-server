@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-08
+
+### Changed
+- Maintenance worker: notes tagged with any tag in `MAINTAIN_EXCLUDE_TAGS` (default `code-graph`) get no findings
+  of any class, as source or target, and their broken links are left out of the unresolved-link count. Code-graph
+  notes are re-rendered by their ingest tool, so fixes to them would be overwritten, and their sibling parts
+  ("map (2)" with "map (3)") were most of the open findings. Open findings on excluded notes resolve on the next
+  run. The report's trends table gains an "Excluded by tag" row. An empty value turns the exclusion off.
+- Maintenance worker: meeting notes (`type: meeting`) are treated like journals, as a historical record, and get
+  no findings as source or target.
+
 ## [1.15.2] - 2026-11-02
 
 ### Fixed

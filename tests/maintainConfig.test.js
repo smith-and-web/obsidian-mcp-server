@@ -22,6 +22,7 @@ describe('maintenance configuration', () => {
       maxPerClass: 10,
       coreadMinWeight: 1.5,
       coreadMinEvents: 2,
+      excludeTags: ['code-graph'],
     });
     expect(
       readMaintainConfig({
@@ -61,6 +62,20 @@ describe('maintenance configuration', () => {
         expect(readMaintainConfig({ ...env, [name]: value })).toEqual({
           error: `Invalid ${name}=${value}: expected an integer from 1 to ${max}`,
         }));
+  it('MAINTAIN_EXCLUDE_TAGS takes a comma list, and empty means none', () => {
+    expect(
+      readMaintainConfig({ ...env, MAINTAIN_EXCLUDE_TAGS: 'code-graph, generated' }).config
+        .excludeTags
+    ).toEqual(['code-graph', 'generated']);
+    expect(readMaintainConfig({ ...env, MAINTAIN_EXCLUDE_TAGS: '' }).config.excludeTags).toEqual(
+      []
+    );
+  });
+  it('MAINTAIN_EXCLUDE_TAGS rejects a tag that could break SQL', () =>
+    expect(readMaintainConfig({ ...env, MAINTAIN_EXCLUDE_TAGS: "x'y" })).toEqual({
+      error:
+        'Invalid MAINTAIN_EXCLUDE_TAGS tag "x\'y": expected lowercase letters, digits, -, _ or /',
+    }));
   it('rejects invalid timezones without throwing', () =>
     expect(readMaintainConfig({ ...env, MAINTAIN_TZ: 'bad/zone' })).toEqual({
       error: 'Invalid MAINTAIN_TZ=bad/zone: expected an IANA time zone',

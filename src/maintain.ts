@@ -21,6 +21,7 @@ async function main(): Promise<number> {
     connectionString: config.databaseUrl,
     collection: config.collection,
     readOnly: false,
+    maintainExcludeTags: config.excludeTags,
   });
   try {
     const outcome = await runMaintenance(store, config, { dry, now: new Date(), log: console.log });
