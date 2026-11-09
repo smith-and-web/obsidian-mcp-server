@@ -75,6 +75,14 @@ run('maintenance false positives', () => {
       graphNote('Lantern code - export map (2)', 2)
     );
     await write(
+      'Meetings/Meeting - 2026-01-06 - Gadget sync.md',
+      note(
+        'Meeting - 2026-01-06 - Gadget sync',
+        'meeting',
+        `${exportBody}. The sprocket turns. [[Missing gadget page]]`
+      )
+    );
+    await write(
       'Journal/2026-01-05.md',
       note('2026-01-05', 'journal', `The sprocket turns. lantern shipped. ${widgetBody}`)
     );
@@ -147,6 +155,7 @@ run('maintenance false positives', () => {
     ];
     expect(all.length).toBeGreaterThan(0);
     for (const c of all) expect(c.paths.some(p => p.includes('Lantern code - '))).toBe(false);
+    for (const c of all) expect(c.paths.some(p => p.startsWith('Meetings/'))).toBe(false);
     const hygiene = await store.hygieneMetrics();
     expect(hygiene.excludedNotes).toBe(2);
   });

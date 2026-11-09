@@ -197,8 +197,9 @@ export interface Hygiene {
   nearDuplicatePairs: number;
   missingLinkPairs: number;
 }
+/** Meeting notes, like journals, are a historical record: no maintenance findings. */
 function eligible(alias: string): string {
-  return `coalesce(${alias}.frontmatter->>'type','') NOT IN ('journal','inbox')`;
+  return `coalesce(${alias}.frontmatter->>'type','') NOT IN ('journal','inbox','meeting')`;
 }
 function aliases(alias: string): string {
   return `CASE WHEN jsonb_typeof(${alias}.frontmatter->'aliases')='array' THEN ${alias}.frontmatter->'aliases' ELSE '[]'::jsonb END`;
@@ -659,6 +660,7 @@ FROM scores;`,
       FROM names n JOIN documents dst ON dst.id=n.id
       JOIN documents src ON src.collection=dst.collection AND src.id<>dst.id
       WHERE dst.collection=$1 AND ${this.eligible('dst')} AND NOT ${this.excludedByTag('src')}
+        AND coalesce(src.frontmatter->>'type','') <> 'meeting'
         AND length(n.name)>=4
         AND ${outsideJournal('src')} AND ${outsideJournal('dst')}
         AND EXISTS (SELECT 1 FROM chunks c WHERE c.document_id=src.id AND c.ord>0
@@ -684,6 +686,7 @@ FROM scores;`,
       `WITH matches AS (
       SELECT src.path AS source,l.target_path,dst.path AS target,dst.frontmatter,
         ${this.excludedByTag('src')} AS src_excluded,
+        coalesce(src.frontmatter->>'type','') = 'meeting' AS src_meeting,
         count(*) OVER (PARTITION BY src.id,l.target_path) AS matches
       FROM links l JOIN documents src ON src.id=l.src_document_id
       JOIN documents dst ON dst.collection=src.collection AND (
@@ -693,8 +696,8 @@ FROM scores;`,
             lower(regexp_replace(regexp_replace(l.target_path,'^.*/',''),'\\.md$','','i'))))
       WHERE src.collection=$1 AND l.target_document_id IS NULL
     ) SELECT DISTINCT ARRAY[source,target] AS paths,jsonb_build_object('target',target_path) AS detail
-      FROM matches WHERE matches=1 AND coalesce(frontmatter->>'type','') NOT IN ('journal','inbox')
-        AND NOT src_excluded
+      FROM matches WHERE matches=1 AND coalesce(frontmatter->>'type','') NOT IN ('journal','inbox','meeting')
+        AND NOT src_excluded AND NOT src_meeting
       ORDER BY paths`,
       [this.collection]
     );
