@@ -14,6 +14,7 @@ import { isExcludedPath } from './exclusions.js';
 import type { IndexConfig } from './config.js';
 import { DEFAULT_RANKING, rankingId, type RankingConfig, type TrailsConfig } from './ranking.js';
 import { LearnLog, NO_CONTEXT, type CallContext } from '../learn/log.js';
+import type { ClicksConfig } from '../search/clicks.js';
 
 export interface SemanticSearchOptions {
   k?: number;
@@ -62,7 +63,8 @@ export class SearchService {
     learn: LearnLog | null,
     frontmatterLinkKeys: string[],
     volatileKeys: string[],
-    private trails?: TrailsConfig
+    private trails?: TrailsConfig,
+    private clicks?: ClicksConfig
   ) {
     this.store = store;
     this.embedder = embedder;
@@ -92,7 +94,8 @@ export class SearchService {
       config.learn?.enabled ? new LearnLog(store, config.learn) : null,
       config.frontmatterLinkKeys,
       config.volatileKeys,
-      config.trails
+      config.trails,
+      config.clicks
     );
   }
 
@@ -112,7 +115,7 @@ export class SearchService {
     const trimmed = query.trim();
     if (!trimmed) return { query, mode, results: [] };
     const embedding = mode === 'text' ? null : (await this.embedder.embed([trimmed]))[0];
-    const { results, shadow } = await this.store.searchRanked(embedding, trimmed, {
+    const { results, shadow, shadowClicks } = await this.store.searchRanked(embedding, trimmed, {
       k: options.k,
       mode,
       directory: options.directory,
@@ -121,6 +124,7 @@ export class SearchService {
       status: options.status,
       ranking: this.ranking,
       trails: this.trails,
+      clicks: this.clicks,
     });
     if (!this.learn) return { query, mode, results };
     const requestId = this.learn.newRequestId();
@@ -131,8 +135,9 @@ export class SearchService {
       query: trimmed,
       embedding,
       params: { ...options },
-      ranker: rankingId(this.ranking ?? DEFAULT_RANKING, this.trails),
+      ranker: rankingId(this.ranking ?? DEFAULT_RANKING, this.trails, this.clicks),
       shadow,
+      shadowClicks,
       results: results.map((hit, i) => ({ path: hit.path, ord: hit.ord, rank: i + 1 })),
     });
     return { query, mode, results, requestId };

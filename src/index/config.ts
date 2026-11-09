@@ -13,6 +13,7 @@ import {
   type TrailsConfig,
 } from './ranking.js';
 import { readLearnConfig, type LearnConfig } from '../learn/config.js';
+import { parseClicksEnv, type ClicksConfig } from '../search/clicks.js';
 
 export interface IndexConfig {
   databaseUrl: string;
@@ -21,6 +22,7 @@ export interface IndexConfig {
   intervalSeconds: number;
   ranking: RankingConfig;
   trails: TrailsConfig;
+  clicks: ClicksConfig;
   learn: LearnConfig;
   frontmatterLinkKeys: string[];
   volatileKeys: string[];
@@ -56,6 +58,7 @@ export function readIndexConfig(env: NodeJS.ProcessEnv = process.env): IndexConf
     intervalSeconds: Math.max(5, Number(env.INDEX_INTERVAL_SECONDS || 60)),
     ranking: parseRankingEnv(env),
     trails: parseTrailsEnv(env),
+    clicks: parseClicksEnv(env),
     learn: readLearnConfig(env),
     frontmatterLinkKeys: keys('INDEX_FRONTMATTER_LINK_KEYS'),
     volatileKeys: keys('INDEX_VOLATILE_KEYS'),
