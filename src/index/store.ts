@@ -268,6 +268,9 @@ export class IndexStore {
       await client.query(
         await fs.readFile(path.resolve(here, '..', '..', 'sql', '005_clicks.sql'), 'utf-8')
       );
+      await client.query(
+        await fs.readFile(path.resolve(here, '..', '..', 'sql', '006_apply.sql'), 'utf-8')
+      );
       const existing = await client.query<{ key: string; value: string }>(
         'SELECT key, value FROM meta WHERE key IN ($1, $2, $3)',
         ['embed_model', 'dim', 'schema_version']
@@ -325,6 +328,9 @@ export class IndexStore {
     );
     await this.pool.query(
       await fs.readFile(path.resolve(here, '..', '..', 'sql', '004_trails.sql'), 'utf-8')
+    );
+    await this.pool.query(
+      await fs.readFile(path.resolve(here, '..', '..', 'sql', '006_apply.sql'), 'utf-8')
     );
   }
 
@@ -888,8 +894,10 @@ FROM scores;`,
   async refreshClassCounts(): Promise<void> {
     await this.pool.query(
       `UPDATE change_classes c SET decided=s.decided,accepted=s.accepted,updated_at=now()
-      FROM (SELECT c.class,count(f.id) FILTER (WHERE f.status IN ('accepted','rejected'))::int AS decided,
-        count(f.id) FILTER (WHERE f.status='accepted')::int AS accepted
+      FROM (SELECT c.class,count(f.id) FILTER (WHERE f.status IN ('accepted','rejected','applied')
+          AND f.decided_via IN ('checkbox','tool'))::int AS decided,
+        count(f.id) FILTER (WHERE f.status IN ('accepted','applied')
+          AND f.decided_via IN ('checkbox','tool'))::int AS accepted
         FROM change_classes c LEFT JOIN maintenance_findings f ON f.class=c.class AND f.collection=c.collection
         WHERE c.collection=$1 GROUP BY c.class) s WHERE c.collection=$1 AND c.class=s.class`,
       [this.collection]
@@ -957,7 +965,8 @@ FROM scores;`,
   async findingsDecidedSince(at: Date): Promise<FindingRow[]> {
     const result = await this.pool.query(
       `SELECT ${this.findingColumns} FROM maintenance_findings WHERE collection=$1
-      AND status IN ('accepted','rejected') AND decided_at>=$2 ORDER BY decided_at,id`,
+      AND status IN ('accepted','rejected','applied') AND decided_via IN ('checkbox','tool')
+      AND decided_at>=$2 ORDER BY decided_at,id`,
       [this.collection, at]
     );
     return this.findingRows(result.rows);
@@ -987,7 +996,13 @@ FROM scores;`,
       FROM maintenance_findings WHERE collection=$1 GROUP BY status`,
       [this.collection]
     );
-    const findings: Record<string, number> = { open: 0, accepted: 0, rejected: 0, resolved: 0 };
+    const findings: Record<string, number> = {
+      open: 0,
+      accepted: 0,
+      rejected: 0,
+      resolved: 0,
+      applied: 0,
+    };
     let openClasses = 0;
     for (const r of result.rows) {
       findings[r.status] = r.n;

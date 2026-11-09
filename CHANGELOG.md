@@ -15,6 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `search_log.shadow_clicks` column (`sql/005_clicks.sql`); `learn-report` gains `clicksShadow`; `brain-eval
   --config` accepts `clicks`. In an offline replay of 571 logged searches it raised first-read MRR from 0.653 to
   0.667 with golden-v1 unchanged, where no trails setting beat live ranking.
+- Maintenance auto-apply (proposal #20), off unless `MAINTAIN_APPLY=true`. Accepted findings in `link-related`,
+  `link-mention`, `link-repair` and `fm-missing` are applied on the next run; a class with 20+ decisions at 90%+
+  acceptance graduates to applying its findings without a decision, and is demoted when more than 10% of its
+  auto-applied changes are reverted. Every change is journalled in `brain_changes` and undoable with
+  `node dist/undo.js <id>` while the note is unchanged. Guards: no journals, meetings, inbox or clippings, no decision
+  bodies, no excluded tags, no note matching a guard pattern (`MAINTAIN_GUARD_PATTERNS_FILE`, default the learn-log
+  redaction file, plus built-in secret patterns), no note modified in the last 24 hours or changed since indexing, at
+  most 20 changes a week. The report gains "Applied this week" and per-class mode and revert rate. Migration
+  `sql/006_apply.sql` adds the `applied` status, the `auto` decision source and `change_classes.demoted_at`.
 
 ## [1.16.0] - 2026-11-08
 
