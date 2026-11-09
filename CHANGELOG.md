@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-08
+
 ### Changed
 - Maintenance worker: notes tagged with any tag in `MAINTAIN_EXCLUDE_TAGS` (default `code-graph`) get no findings
   of any class, as source or target, and their broken links are left out of the unresolved-link count. Code-graph
