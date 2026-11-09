@@ -26,6 +26,7 @@ import {
   trailsRerank,
   rankingId,
 } from './ranking.js';
+import { clickTotals, clicksRerank, type ClicksConfig } from '../search/clicks.js';
 
 const { Pool } = pg;
 const POOL_SIZE = 4;
@@ -54,6 +55,7 @@ export type SearchOptions = {
   candidates?: number;
   ranking?: RankingConfig;
   trails?: TrailsConfig;
+  clicks?: ClicksConfig;
 } & SearchFilters;
 
 export const SCHEMA_VERSION = '1';
@@ -263,6 +265,12 @@ export class IndexStore {
       await client.query(
         await fs.readFile(path.resolve(here, '..', '..', 'sql', '004_trails.sql'), 'utf-8')
       );
+      await client.query(
+        await fs.readFile(path.resolve(here, '..', '..', 'sql', '005_clicks.sql'), 'utf-8')
+      );
+      await client.query(
+        await fs.readFile(path.resolve(here, '..', '..', 'sql', '006_apply.sql'), 'utf-8')
+      );
       const existing = await client.query<{ key: string; value: string }>(
         'SELECT key, value FROM meta WHERE key IN ($1, $2, $3)',
         ['embed_model', 'dim', 'schema_version']
@@ -320,6 +328,9 @@ export class IndexStore {
     );
     await this.pool.query(
       await fs.readFile(path.resolve(here, '..', '..', 'sql', '004_trails.sql'), 'utf-8')
+    );
+    await this.pool.query(
+      await fs.readFile(path.resolve(here, '..', '..', 'sql', '006_apply.sql'), 'utf-8')
     );
   }
 
@@ -883,8 +894,10 @@ FROM scores;`,
   async refreshClassCounts(): Promise<void> {
     await this.pool.query(
       `UPDATE change_classes c SET decided=s.decided,accepted=s.accepted,updated_at=now()
-      FROM (SELECT c.class,count(f.id) FILTER (WHERE f.status IN ('accepted','rejected'))::int AS decided,
-        count(f.id) FILTER (WHERE f.status='accepted')::int AS accepted
+      FROM (SELECT c.class,count(f.id) FILTER (WHERE f.status IN ('accepted','rejected','applied')
+          AND f.decided_via IN ('checkbox','tool'))::int AS decided,
+        count(f.id) FILTER (WHERE f.status IN ('accepted','applied')
+          AND f.decided_via IN ('checkbox','tool'))::int AS accepted
         FROM change_classes c LEFT JOIN maintenance_findings f ON f.class=c.class AND f.collection=c.collection
         WHERE c.collection=$1 GROUP BY c.class) s WHERE c.collection=$1 AND c.class=s.class`,
       [this.collection]
@@ -952,7 +965,8 @@ FROM scores;`,
   async findingsDecidedSince(at: Date): Promise<FindingRow[]> {
     const result = await this.pool.query(
       `SELECT ${this.findingColumns} FROM maintenance_findings WHERE collection=$1
-      AND status IN ('accepted','rejected') AND decided_at>=$2 ORDER BY decided_at,id`,
+      AND status IN ('accepted','rejected','applied') AND decided_via IN ('checkbox','tool')
+      AND decided_at>=$2 ORDER BY decided_at,id`,
       [this.collection, at]
     );
     return this.findingRows(result.rows);
@@ -982,7 +996,13 @@ FROM scores;`,
       FROM maintenance_findings WHERE collection=$1 GROUP BY status`,
       [this.collection]
     );
-    const findings: Record<string, number> = { open: 0, accepted: 0, rejected: 0, resolved: 0 };
+    const findings: Record<string, number> = {
+      open: 0,
+      accepted: 0,
+      rejected: 0,
+      resolved: 0,
+      applied: 0,
+    };
     let openClasses = 0;
     for (const r of result.rows) {
       findings[r.status] = r.n;
@@ -1062,11 +1082,16 @@ FROM scores;`,
     ranker: string;
     results: unknown[];
     shadow?: SearchShadow | null;
+    shadowClicks?: SearchShadow | null;
   }): Promise<void> {
+    const shadowClicks =
+      row.shadowClicks === undefined || row.shadowClicks === null
+        ? null
+        : JSON.stringify(row.shadowClicks);
     await this.pool.query(
       `INSERT INTO search_log
-       (id, collection, session_id, client_name, tool, query, redacted, query_embedding, params, ranker, results, shadow)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, $10, $11::jsonb, $12::jsonb)`,
+       (id, collection, session_id, client_name, tool, query, redacted, query_embedding, params, ranker, results, shadow${shadowClicks === null ? '' : ', shadow_clicks'})
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::vector, $9::jsonb, $10, $11::jsonb, $12::jsonb${shadowClicks === null ? '' : ', $13::jsonb'})`,
       [
         row.id,
         this.collection,
@@ -1080,6 +1105,7 @@ FROM scores;`,
         row.ranker,
         JSON.stringify(row.results),
         row.shadow === undefined || row.shadow === null ? null : JSON.stringify(row.shadow),
+        ...(shadowClicks === null ? [] : [shadowClicks]),
       ]
     );
   }
@@ -1280,6 +1306,39 @@ FROM scores;`,
          ) first_read ON true
          WHERE s.collection = $1 AND s.at >= now() - make_interval(days => $2)
            AND s.shadow IS NOT NULL
+       ) SELECT count(*) AS searches,
+         avg(CASE WHEN results->0->>'path' IS DISTINCT FROM shadow->'results'->0->>'path' THEN 1.0 ELSE 0.0 END)::float8 AS top1_differs,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(results) hit WHERE hit->>'path' = path), 0))::float8 AS mrr_live,
+         avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(shadow->'results') hit WHERE hit->>'path' = path), 0))::float8 AS mrr_shadow
+       FROM qualifying`,
+      [this.collection, days]
+    );
+    return result.rows[0];
+  }
+
+  /** Same comparison as the trails shadow, over `search_log.shadow_clicks`. */
+  async learnReportClicksShadow(days: number) {
+    const column = await this.pool.query(
+      "SELECT 1 FROM information_schema.columns WHERE table_name = 'search_log' AND column_name = 'shadow_clicks'"
+    );
+    if (!column.rowCount)
+      return { searches: '0', top1_differs: null, mrr_live: null, mrr_shadow: null };
+    const result = await this.pool.query<{
+      searches: string;
+      top1_differs: number | null;
+      mrr_live: number | null;
+      mrr_shadow: number | null;
+    }>(
+      `WITH qualifying AS (
+         SELECT s.results, s.shadow_clicks AS shadow, first_read.path
+         FROM search_log s
+         JOIN LATERAL (
+           SELECT r.path FROM note_reads r
+           WHERE r.request_id = s.id AND r.collection = s.collection
+           ORDER BY r.at, r.id LIMIT 1
+         ) first_read ON true
+         WHERE s.collection = $1 AND s.at >= now() - make_interval(days => $2)
+           AND s.shadow_clicks IS NOT NULL
        ) SELECT count(*) AS searches,
          avg(CASE WHEN results->0->>'path' IS DISTINCT FROM shadow->'results'->0->>'path' THEN 1.0 ELSE 0.0 END)::float8 AS top1_differs,
          avg(coalesce((SELECT 1.0 / min((hit->>'rank')::int) FROM jsonb_array_elements(results) hit WHERE hit->>'path' = path), 0))::float8 AS mrr_live,
@@ -1649,7 +1708,11 @@ FROM scores;`,
     queryEmbedding: number[] | null,
     queryText: string,
     options: SearchOptions = {}
-  ): Promise<{ results: SearchHit[]; shadow: SearchShadow | null }> {
+  ): Promise<{
+    results: SearchHit[];
+    shadow: SearchShadow | null;
+    shadowClicks?: SearchShadow | null;
+  }> {
     const k = Math.max(1, Math.min(options.k ?? 8, 50));
     const candidates = Math.max(k, Math.min(options.candidates ?? 40, 200));
     const mode = options.mode ?? 'hybrid';
@@ -1739,8 +1802,40 @@ FROM scores;`,
           console.error('trails-rerank:', err instanceof Error ? err.message : String(err));
         }
       }
+      let clicksHits: typeof candidatesList | null = null;
+      const clicks = options.clicks;
+      if (clicks && clicks.mode !== 'off' && useVector) {
+        // A savepoint keeps a failed lookup from aborting the search transaction.
+        await client.query('SAVEPOINT clicks');
+        try {
+          const totals = await clickTotals(
+            client,
+            this.collection,
+            toSqlVector(queryEmbedding!),
+            [...new Set(live.map(hit => hit.documentId))],
+            clicks
+          );
+          await client.query('RELEASE SAVEPOINT clicks');
+          const reranked = clicksRerank(live, totals, {
+            w: clicks.w,
+            c: clicks.c,
+            rrfK: ranking.fusion === 'rrf' ? ranking.rrfK : 60,
+          });
+          if (clicks.mode === 'on') live = reranked;
+          else clicksHits = reranked.slice(0, k);
+        } catch (err) {
+          await client.query('ROLLBACK TO SAVEPOINT clicks');
+          console.error('clicks-rerank:', err instanceof Error ? err.message : String(err));
+        }
+      }
       const hits = live.slice(0, k);
-      const detailIds = [...new Set([...hits, ...(shadowHits ?? [])].map(hit => hit.id))];
+      const detailIds = [
+        ...new Set([...hits, ...(shadowHits ?? []), ...(clicksHits ?? [])].map(hit => hit.id)),
+      ];
+      const clicksRanker = clicks
+        ? rankingId(ranking, trails?.mode === 'on' ? trails : undefined, { ...clicks, mode: 'on' })
+        : '';
+      let shadowClicks: SearchShadow | null = null;
       let shadow: SearchShadow | null = null;
       let results: SearchHit[] = [];
       if (hits.length) {
@@ -1756,6 +1851,15 @@ FROM scores;`,
           [detailIds]
         );
         const byId = new Map(details.rows.map(r => [Number(r.id), r]));
+        if (clicksHits)
+          shadowClicks = {
+            ranker: clicksRanker,
+            results: clicksHits.map((hit, i) => ({
+              path: byId.get(hit.id)!.path,
+              ord: hit.ord,
+              rank: i + 1,
+            })),
+          };
         if (shadowHits)
           shadow = {
             ranker: rankingId(ranking, { ...trails!, mode: 'on' }),
@@ -1781,8 +1885,10 @@ FROM scores;`,
       }
       if (shadowHits && !shadow)
         shadow = { ranker: rankingId(ranking, { ...trails!, mode: 'on' }), results: [] };
+      if (clicksHits && !shadowClicks) shadowClicks = { ranker: clicksRanker, results: [] };
       await client.query('COMMIT');
-      return { results, shadow };
+      // The key is present only when a clicks shadow was computed, so other callers see no change.
+      return clicksHits ? { results, shadow, shadowClicks } : { results, shadow };
     } catch (err) {
       try {
         await client.query('ROLLBACK');

@@ -351,6 +351,12 @@ obsidian-mcp-server/
 | `MAINTAIN_HUB_DAYS` | `14` | Linked-note update gap for stale hubs, integer 1–365 |
 | `MAINTAIN_SUMMARY_DROP` | `0.05` | Summary/body cosine drop threshold, strictly between 0 and 1 |
 | `MAINTAIN_MAX_PER_CLASS` | `10` | New findings per class per run, integer 1–100 |
+| `MAINTAIN_APPLY` | `false` | Kill switch for auto-apply; `true` lets the worker apply accepted and graduated findings |
+| `MAINTAIN_APPLY_WEEKLY_CAP` | `20` | Applied note changes per rolling 7 days, integer 1–100 |
+| `MAINTAIN_APPLY_MIN_AGE_HOURS` | `24` | Notes modified more recently are never edited, integer 1–720 |
+| `MAINTAIN_GUARD_PATTERNS_FILE` | `LEARN_REDACT_PATTERNS_FILE` | Regex lines; a note matching one (or a built-in secret pattern) is never edited. Required for apply |
+| `MAINTAIN_EXCLUDE_TAGS` | `code-graph` | Comma list; tagged notes get no findings and are never edited |
+| `INDEX_VOLATILE_KEYS` | `heat` (worker) | Must match the indexer's, so the worker can tell a note is unchanged since it was indexed |
 | `SEARCH_FUSION` | `rrf` | Fusion: `rrf` (weighted reciprocal rank) or `dbsf` (distribution-based score fusion) |
 | `SEARCH_RRF_K` | `60` | RRF rank constant, integer 1–1000; validated but unused under DBSF |
 | `SEARCH_W_VECTOR` | `1` | Vector-leg weight, finite number 0–10 |
@@ -359,6 +365,11 @@ obsidian-mcp-server/
 | `SEARCH_TRAILS` | `off` | Trails ranking mode: `off`, `shadow` or `on` |
 | `SEARCH_TRAILS_W` | `0.5` | Trails boost weight, finite number greater than 0 and at most 10 |
 | `SEARCH_TRAILS_ANCHORS` | `3` | Number of distinct leading candidate notes used as anchors, integer 1–8 |
+| `SEARCH_CLICKS` | `off` | Query-click ranking mode: `off`, `shadow` or `on` |
+| `SEARCH_CLICKS_TAU` | `0.8` | Minimum query-embedding cosine for a past search to count, between 0 and 1 |
+| `SEARCH_CLICKS_W` | `0.5` | Click boost weight, greater than 0 and at most 10 |
+| `SEARCH_CLICKS_C` | `1` | Saturation constant in `t/(t+c)`, greater than 0 and at most 100 |
+| `SEARCH_CLICKS_WINDOW_DAYS` | `30` | Past searches considered, integer 1–365 (the learn log keeps `LEARN_RETENTION_DAYS`) |
 | `INDEX_INTERVAL_SECONDS` | `60` | Indexer only: seconds between vault scans |
 | `INDEX_VERBOSE` | `false` | Indexer only: log every file indexed or removed |
 | `EMBED_BATCH_SIZE` | `16` | Texts per Ollama request |
@@ -796,7 +807,23 @@ Each ISO week produces `Brain maintenance YYYY-Www.md` in the configured output 
 
 Tick one checkbox per finding, or explicitly ask the assistant to call `maintenance-decision` with `finding: "f17"`, `decision: "accept"` or `"reject"`, and an optional reason. Conflicting ticks record no decision. A checkbox never overrides an earlier decision; an explicit tool call may change one. Rejected findings are never proposed again. Fixed findings resolve without counting as acceptance. New findings are capped per class, with at most 50 open findings listed in a report.
 
-This stage is report-only: accepting records a decision and changes no note. Apply accepted findings yourself. Near-duplicate merges and hub reviews remain report-only permanently. The worker never edits existing notes; its only vault write is its own report.
+### Auto-apply (server >= 1.17.0)
+
+Off by default. With `MAINTAIN_APPLY=true` and a readable guard patterns file, the worker applies deterministic fixes and journals each one in `brain_changes`:
+
+- **Apply on accept:** an accepted finding in `link-related`, `link-mention`, `link-repair` or `fm-missing` is applied on the next run, if the run still sees it. Its status becomes `applied`.
+- **Graduated auto-apply:** a class with at least 20 of Josh's decisions at 90% or more acceptance switches to `auto` and applies its open findings without a decision. Auto-applied findings don't count as decisions. A class is demoted to report-only when more than 10% of its auto-applied changes are reverted, and needs 20 fresh decisions at 90% to graduate again.
+- **Report-only always:** `summary-refresh` (needs a model), `link-coread`, `merge-duplicate` and `hub-review`.
+
+Changes: `link-related` adds `[[other]]` to each note's `## Related` section in its existing style (bullets or an inline list) or adds the section; `link-mention` links the first prose mention, keeping the matched text as display; `link-repair` points the unresolved link at the matched note, keeping the old text as display; `fm-missing` adds `index: true` / `aliases: []`. Each edit also sets an existing `updated` field to the run time, keeping its quoting, and changes nothing else.
+
+Never edited: `Journal/`, `Meetings/`, `Inbox/`, `Clippings/`, decision bodies (frontmatter only), notes with an excluded tag or invalid frontmatter, notes matching a guard pattern, notes modified within `MAINTAIN_APPLY_MIN_AGE_HOURS`, and notes whose content no longer matches the index. A finding is applied whole or not at all, by an atomic write that re-checks the note just before renaming. More than `MAINTAIN_APPLY_WEEKLY_CAP` changes in 7 days waits for the next week.
+
+The report gains **Applied this week** (each change with its id, plus findings not applied and why) and the acceptance table shows each class's mode, applied changes and revert rate. `--dry` also prints what would be applied.
+
+**Undo:** `node dist/undo.js <change-id> [--dry]` (`npm run undo`) restores every change of that finding, only if each note still holds exactly what auto-apply wrote; otherwise it refuses and names the note. The finding becomes a rejection and is not proposed again. Needs `DATABASE_URL`, `INDEX_COLLECTION` and `VAULT_PATH` (writable).
+
+Merges and hub reviews are never applied; deletes, moves and renames are never made.
 
 `recommend-notes` takes 1–10 `positive` paths, up to 10 `negative` paths, an optional integer `k` (1–50), `type` and `directory`. It excludes the examples. `best_score` compares the nearest positive and negative; `average_vector` uses the positive mean, moved away from the negative mean when present. Neither tool requires learn logging; sensitive decision reasons are stored as null using the active redaction patterns or the built-ins.
 
@@ -914,6 +941,28 @@ searches in the report window that have a shadow and at least one linked read.
 changes, and `mrrLive` / `mrrShadow` average the reciprocal rank of each search's
 first-read note (zero if absent). Repeated chunks use the note's minimum rank.
 Empty-window rates are `null`, and nonempty rates are rounded to four decimals.
+
+## Query-click shadow ranking
+
+Query clicks rerank existing candidates by what earlier, similar searches led to. For a
+search with a query embedding, every logged search in the last `SEARCH_CLICKS_WINDOW_DAYS`
+whose query embedding has cosine ≥ `SEARCH_CLICKS_TAU` contributes its cosine once to each
+note it led to a read of (`note_reads.request_id`). With `t` the summed cosine for a note,
+every chunk of that note gains `w · t / (t + c) / (rrfK + 1)`, after the per-note cap and
+after trails. Candidates are never added or dropped; ties keep the live order. Redacted
+searches have no embedding and never count. Text-mode searches skip the lookup.
+
+`off` (the default) runs no lookup. `shadow` returns the same live results and ranker id and
+logs the alternate top-k order in `search_log.shadow_clicks` (`sql/005_clicks.sql`), in the
+same `{ ranker, results: [{ path, ord, rank }] }` shape as the trails shadow; this needs
+learn logging. `on` returns the boosted order and adds `-ck<tau>w<w>c<c>` to the ranker id.
+The lookup runs under a savepoint, so a failure is logged and leaves the search unchanged.
+It is a bounded scan of the window (about 9 ms for 5,000 1024-dimension rows).
+
+`learn-report` includes a **Clicks shadow** section (`clicksShadow` in JSON) with the same
+fields and definitions as the trails shadow. `brain-eval --config
+'{"clicks":{"tau":0.8,"w":0.5,"c":1}}'` evaluates it offline (optional `windowDays`); note that
+golden queries see every logged search, so use logged usage as the primary gate.
 
 Evaluate trails independently of the existing ranking grid:
 

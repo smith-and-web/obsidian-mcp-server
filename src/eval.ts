@@ -14,6 +14,7 @@ import {
   type RankingConfig,
 } from './index/ranking.js';
 import { CATEGORIES, loadGolden } from './eval/golden.js';
+import { parseClicksEnv, type ClicksConfig } from './search/clicks.js';
 import {
   aggregate,
   gate,
@@ -43,6 +44,7 @@ function argumentsForEval() {
       throw new Error(USAGE);
     let ranking: RankingConfig | undefined;
     let trails: TrailsConfig | undefined;
+    let clicks: ClicksConfig | undefined;
     if (values.config !== undefined) {
       const obj: unknown = JSON.parse(values.config);
       if (obj === null || typeof obj !== 'object' || Array.isArray(obj))
@@ -72,6 +74,36 @@ function argumentsForEval() {
           );
         }
       }
+      if (Object.hasOwn(fields, 'clicks')) {
+        const value = fields.clicks;
+        delete fields.clicks;
+        if (value === null || typeof value !== 'object' || Array.isArray(value))
+          throw new Error('Invalid --config clicks: expected an object with tau, w and c');
+        const options = value as Record<string, unknown>;
+        const allowed = ['tau', 'w', 'c', 'windowDays'];
+        if (
+          !['tau', 'w', 'c'].every(key => typeof options[key] === 'number') ||
+          Object.keys(options).some(key => !allowed.includes(key)) ||
+          (options.windowDays !== undefined && typeof options.windowDays !== 'number')
+        )
+          throw new Error(
+            'Invalid --config clicks: expected numeric tau, w and c, and optional windowDays, only'
+          );
+        try {
+          clicks = parseClicksEnv({
+            SEARCH_CLICKS: 'on',
+            SEARCH_CLICKS_TAU: String(options.tau),
+            SEARCH_CLICKS_W: String(options.w),
+            SEARCH_CLICKS_C: String(options.c),
+            SEARCH_CLICKS_WINDOW_DAYS:
+              options.windowDays === undefined ? '' : String(options.windowDays),
+          });
+        } catch (err) {
+          throw new Error(
+            `Invalid --config clicks: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
       for (const [key, value] of Object.entries(obj)) {
         if (
           !Object.hasOwn(DEFAULT_RANKING, key) ||
@@ -82,7 +114,7 @@ function argumentsForEval() {
       }
       ranking = parseRankingEnv(rankingEnv({ ...DEFAULT_RANKING, ...obj }));
     }
-    return { golden: values.golden, out: values.out, grid: values.grid, ranking, trails };
+    return { golden: values.golden, out: values.out, grid: values.grid, ranking, trails, clicks };
   } catch (err) {
     throw new InputError(`${err instanceof Error ? err.message : String(err)}\n${USAGE}`);
   }
@@ -134,6 +166,11 @@ async function main(): Promise<void> {
     SEARCH_TRAILS: '',
     SEARCH_TRAILS_W: '',
     SEARCH_TRAILS_ANCHORS: '',
+    SEARCH_CLICKS: '',
+    SEARCH_CLICKS_TAU: '',
+    SEARCH_CLICKS_W: '',
+    SEARCH_CLICKS_C: '',
+    SEARCH_CLICKS_WINDOW_DAYS: '',
   });
   if (!config) throw new InputError('DATABASE_URL is required');
   const embedder = await createEmbedder(config.embedder);
@@ -157,16 +194,17 @@ async function main(): Promise<void> {
     for (const query of golden.queries)
       vectors.push((await embedder.embed([query.query.trim()]))[0]);
     const baselineId = rankingId(DEFAULT_RANKING);
-    const configs: { ranking: RankingConfig; trails?: TrailsConfig }[] = args.grid
-      ? GRID.map(ranking => ({ ranking }))
-      : [
-          { ranking: DEFAULT_RANKING },
-          ...(args.trails || rankingId(args.ranking!) !== baselineId
-            ? [{ ranking: args.ranking!, trails: args.trails }]
-            : []),
-        ];
+    const configs: { ranking: RankingConfig; trails?: TrailsConfig; clicks?: ClicksConfig }[] =
+      args.grid
+        ? GRID.map(ranking => ({ ranking }))
+        : [
+            { ranking: DEFAULT_RANKING },
+            ...(args.trails || args.clicks || rankingId(args.ranking!) !== baselineId
+              ? [{ ranking: args.ranking!, trails: args.trails, clicks: args.clicks }]
+              : []),
+          ];
     const results: Evaluation[] = [];
-    for (const { ranking, trails } of configs) {
+    for (const { ranking, trails, clicks } of configs) {
       const perQuery = [];
       for (const [i, query] of golden.queries.entries()) {
         const { results: hits } = await store.searchRanked(vectors[i], query.query.trim(), {
@@ -174,12 +212,13 @@ async function main(): Promise<void> {
           mode: 'hybrid',
           ranking,
           trails,
+          clicks,
         });
         const notes = [...new Set(hits.map(hit => hit.path))];
         perQuery.push({ id: query.id, notes, ...scoreQuery(notes, query.expected) });
       }
       const result: Evaluation = {
-        id: rankingId(ranking, trails),
+        id: rankingId(ranking, trails, clicks),
         config: ranking,
         metrics: aggregate(perQuery, golden),
         perQuery: perQuery.map(({ id, firstRank, notes }) => ({ id, firstRank, notes })),
