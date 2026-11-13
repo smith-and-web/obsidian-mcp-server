@@ -692,7 +692,12 @@ FROM scores;`,
     return this.candidates('link-mention', rows);
   }
 
-  async findLinkRepairs(): Promise<Candidate[]> {
+  /**
+   * Unresolved links whose target matches exactly one indexed note by title or alias. Pass
+   * `exists` (from `vaultLinkTargets`) to drop links whose target is a real vault file the
+   * index never reads (`index: false`, `.noindex` folders): those links are not broken.
+   */
+  async findLinkRepairs(exists?: (target: string) => boolean): Promise<Candidate[]> {
     const result = await this.pool.query(
       `WITH matches AS (
       SELECT src.path AS source,l.target_path,dst.path AS target,dst.frontmatter,
@@ -712,7 +717,10 @@ FROM scores;`,
       ORDER BY paths`,
       [this.collection]
     );
-    return this.candidates('link-repair', result.rows);
+    const rows = exists
+      ? result.rows.filter(row => !exists(String(row.detail.target)))
+      : result.rows;
+    return this.candidates('link-repair', rows);
   }
 
   async findMissingFrontmatter(): Promise<Candidate[]> {
@@ -790,21 +798,29 @@ FROM scores;`,
     return this.candidates('hub-review', result.rows);
   }
 
-  async hygieneMetrics(): Promise<Hygiene> {
+  /** `exists` (from `vaultLinkTargets`) stops links to unindexed vault files counting as unresolved. */
+  async hygieneMetrics(exists?: (target: string) => boolean): Promise<Hygiene> {
     const result = await this.pool.query(
       `SELECT count(*)::int AS documents,
       count(*) FILTER (WHERE d.frontmatter_error IS NOT NULL)::int AS "invalidFrontmatter",
       count(*) FILTER (WHERE ${this.excludedByTag('d')})::int AS "excludedNotes",
       count(*) FILTER (WHERE ${this.eligible('d')} AND NOT EXISTS (SELECT 1 FROM links l
-        WHERE l.target_document_id=d.id AND l.src_document_id<>d.id))::int AS orphans,
-      (SELECT count(*)::int FROM links l JOIN documents src ON src.id=l.src_document_id
-        WHERE src.collection=$1 AND l.target_document_id IS NULL
-          AND NOT ${this.excludedByTag('src')}) AS "unresolvedLinks"
+        WHERE l.target_document_id=d.id AND l.src_document_id<>d.id))::int AS orphans
       FROM documents d WHERE d.collection=$1`,
       [this.collection]
     );
+    const unresolved = await this.pool.query(
+      `SELECT l.target_path FROM links l JOIN documents src ON src.id=l.src_document_id
+        WHERE src.collection=$1 AND l.target_document_id IS NULL
+          AND NOT ${this.excludedByTag('src')}`,
+      [this.collection]
+    );
+    const unresolvedLinks = unresolved.rows.filter(
+      row => !exists || !exists(String(row.target_path))
+    ).length;
     return {
       ...result.rows[0],
+      unresolvedLinks,
       nearDuplicatePairs: (await this.findNearDuplicates(0.92, 0.6)).length,
       missingLinkPairs: (await this.findMissingLinks(0.85)).length,
     };

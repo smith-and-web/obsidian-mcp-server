@@ -5,6 +5,7 @@ import type { MaintainConfig } from './config.js';
 import { CLASSES } from './classes.js';
 import { readReportDecisions } from './decisions.js';
 import { vaultMentionVerifier } from './mentions.js';
+import { vaultLinkTargets, type LinkTargetExists } from './vaultTargets.js';
 import { isoWeek, renderReport, type ApplyReport, type MaintenanceMetrics } from './report.js';
 import { ApplyStore } from './applyStore.js';
 import { applyFindings, DETERMINISTIC } from './apply.js';
@@ -13,11 +14,11 @@ import { applyFindings, DETERMINISTIC } from './apply.js';
  * Runs the eight checks in their report order. No ranking settings are read; the
  * vault is read only to confirm that a mention is in a note's prose.
  */
-async function checks(store: IndexStore, c: MaintainConfig) {
+async function checks(store: IndexStore, c: MaintainConfig, exists: LinkTargetExists) {
   return [
     await store.findMissingLinks(c.linkCosine),
     await store.findUnlinkedMentions(vaultMentionVerifier(c.vaultPath)),
-    await store.findLinkRepairs(),
+    await store.findLinkRepairs(exists),
     await store.findMissingFrontmatter(),
     await store.findStaleSummaries(c.summaryDrop),
     await store.findNearDuplicates(c.dupCosine, c.dupTitleSim),
@@ -41,11 +42,12 @@ export async function runMaintenance(
     await store.ensureMaintenanceSchema();
     locked = await store.maintenanceLock();
     if (!locked) return { code: 1, message: 'another run is in progress' };
+    const exists = await vaultLinkTargets(config.vaultPath);
     if (opts.dry) {
-      const candidates = await checks(store, config);
+      const candidates = await checks(store, config, exists);
       for (const [i, c] of CLASSES.entries())
         opts.log(`${c.class}: ${candidates[i].length} candidates`);
-      for (const [key, value] of Object.entries(await store.hygieneMetrics()))
+      for (const [key, value] of Object.entries(await store.hygieneMetrics(exists)))
         opts.log(`hygiene.${key}: ${value}`);
       const dryApply = await applyFindings({
         store: applyStore,
@@ -73,7 +75,7 @@ export async function runMaintenance(
     for (const tick of ticks.decisions)
       if (await store.decideFinding(tick.id, tick.decision, 'checkbox', null, true))
         decisionsParsed++;
-    const candidates = await checks(store, config);
+    const candidates = await checks(store, config, exists);
     for (const [i, c] of CLASSES.entries())
       await store.upsertFindings(runId, reportId, c.class, candidates[i], config.maxPerClass);
     await store.resolveUnseenFindings(
@@ -91,7 +93,7 @@ export async function runMaintenance(
     await store.refreshClassCounts();
     const { findings, openClasses } = await store.maintenanceFindingCounts();
     const reportMetrics: MaintenanceMetrics = {
-      ...(await store.hygieneMetrics()),
+      ...(await store.hygieneMetrics(exists)),
       findings,
       decisionsParsed,
       conflicts: ticks.conflicts,

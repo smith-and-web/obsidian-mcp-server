@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Maintenance no longer treats a link to an unindexed vault file as broken. Notes with `index: false` (generated
+  notes such as Brain trails) and folders with a `.noindex` marker (Clippings/Archive) have no index row, so
+  `link-repair` proposed "repairing" working links to a note whose alias matched, and the report's unresolved-link
+  count included them. The worker now walks the vault once per run (`vaultLinkTargets`) and drops link-repair
+  candidates and unresolved links whose target is a real file.
+
 ## [1.17.0] - 2026-11-08
 
 ### Added
