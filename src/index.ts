@@ -10,6 +10,7 @@ import express from 'express';
 import { createRelatedHandler } from './server/related.js';
 import { createGraphHandler } from './server/graph.js';
 import { VaultManager } from './vault/VaultManager.js';
+import { readBudget } from './vault/budget.js';
 import { createMCPServer } from './server/mcp.js';
 import { readInstructions } from './server/instructions.js';
 import { readKeepaliveConfig } from './server/keepalive.js';
@@ -42,7 +43,13 @@ const auth = authMiddleware({
 });
 
 // Initialize VaultManager
-const vaultManager = new VaultManager(VAULT_PATH, { compactResponses: COMPACT_RESPONSES });
+const READ_OUTLINE_TOKENS = readBudget(process.env, 'READ_OUTLINE_TOKENS');
+const SEARCH_VAULT_BUDGET_TOKENS = readBudget(process.env, 'SEARCH_VAULT_BUDGET_TOKENS');
+const vaultManager = new VaultManager(VAULT_PATH, {
+  compactResponses: COMPACT_RESPONSES,
+  readOutlineTokens: READ_OUTLINE_TOKENS,
+  searchBudgetTokens: SEARCH_VAULT_BUDGET_TOKENS,
+});
 
 // Optional semantic search (pgvector + Ollama), enabled by DATABASE_URL
 const indexConfig = readIndexConfig();
@@ -105,6 +112,9 @@ app.listen(PORT, () => {
   console.log(`Obsidian MCP SSE server running on port ${PORT}`);
   console.log(`Vault path: ${VAULT_PATH}`);
   console.log(`Compact responses: ${COMPACT_RESPONSES}`);
+  console.log(
+    `Read outline above: ${READ_OUTLINE_TOKENS || 'off'}; search-vault budget: ${SEARCH_VAULT_BUDGET_TOKENS || 'off'}`
+  );
   console.log(`Authentication: ${API_KEY ? 'enabled' : 'disabled'}`);
   if (REQUIRE_TAILSCALE_LOGIN) console.log(`Tailscale login required: ${REQUIRE_TAILSCALE_LOGIN}`);
   console.log(`Instructions: ${INSTRUCTIONS ? `${INSTRUCTIONS.length} chars` : 'none'}`);

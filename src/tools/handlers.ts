@@ -14,6 +14,7 @@ export interface ToolArguments {
   paths?: string | string[];
   content?: string;
   frontmatterOnly?: boolean;
+  full?: boolean;
   confirm?: string;
   from?: string;
   to?: string;
@@ -77,6 +78,7 @@ export async function executeToolCall(
     case 'read-note': {
       const result = await vaultManager.readNote(args.path!, {
         frontmatterOnly: args.frontmatterOnly,
+        full: args.full,
       });
       learn?.logReads(ctx, name, [args.path!], args.requestId ?? null);
       return result;
@@ -84,6 +86,7 @@ export async function executeToolCall(
     case 'read-multiple-notes': {
       const result = await vaultManager.readMultipleNotes(args.paths as string[], {
         frontmatterOnly: args.frontmatterOnly,
+        full: args.full,
       });
       learn?.logReads(
         ctx,
