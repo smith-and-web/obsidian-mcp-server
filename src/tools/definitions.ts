@@ -20,7 +20,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'read-note',
     description:
-      'Read the contents of a note. Use frontmatterOnly=true to get just the YAML frontmatter as JSON (saves tokens on large files).',
+      'Read the contents of a note. Use frontmatterOnly=true to get just the YAML frontmatter as JSON (saves tokens on large files). If the server has a read limit and the note is over it, the result is an outline (frontmatter plus every heading with its token size) instead of the content: then use read-section for the parts you need, or full=true for the whole note.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -34,6 +34,11 @@ export const toolDefinitions: ToolDefinition[] = [
           type: 'boolean',
           description: 'Return only frontmatter as JSON instead of full content (default: false)',
         },
+        full: {
+          type: 'boolean',
+          description:
+            'Return the whole note even if it is over the server read limit (default: false). Prefer read-section for large notes.',
+        },
       },
       required: ['path'],
     },
@@ -41,7 +46,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'read-multiple-notes',
     description:
-      'Read multiple notes in a single request. Much more efficient than multiple read-note calls. Supports frontmatterOnly option for token-efficient auditing.',
+      'Read multiple notes in a single request. Much more efficient than multiple read-note calls. Supports frontmatterOnly option for token-efficient auditing. Notes over the server read limit come back as outlines, as in read-note.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -58,6 +63,11 @@ export const toolDefinitions: ToolDefinition[] = [
         frontmatterOnly: {
           type: 'boolean',
           description: 'Return only frontmatter as JSON instead of full content (default: false)',
+        },
+        full: {
+          type: 'boolean',
+          description:
+            'Return the whole note even if it is over the server read limit (default: false). Prefer read-section for large notes.',
         },
       },
       required: ['paths'],
@@ -368,7 +378,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'search-vault',
     description:
-      'Search notes in the vault with structured results including line numbers and context. Can search content, filenames, or both. Supports directory filtering.',
+      'Search notes in the vault with structured results including line numbers and context. Can search content, filenames, or both. Supports directory filtering. If the server has an output budget, long results are trimmed and marked truncated: narrow with directory or a more specific query.',
     inputSchema: {
       type: 'object',
       properties: {

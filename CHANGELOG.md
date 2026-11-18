@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-11-18
+
+### Added
+- Read and search budgets, both off by default. A tool result is re-sent with every later model request, so a
+  large read costs its size many times over (measured on one vault: 8.2M tokens of results re-sent as 503M).
+  - `READ_OUTLINE_TOKENS`: `read-note` and `read-multiple-notes` return an outline for notes over the limit:
+    frontmatter and every heading (exactly as `read-section` takes it) with the tokens that section would cost.
+    `full: true` returns the whole note. Fenced code is not mistaken for headings.
+  - `SEARCH_VAULT_BUDGET_TOKENS`: `search-vault` output is trimmed to about the budget (300-character lines, 5
+    matches per file with `moreMatches`, later files omitted) and marked `truncated` with a hint;
+    `contextLines` defaults to 1. Replaying 400 logged queries: mean 3.2k → 0.7k tokens, max 143k → 4k.
+
 ## [1.17.0] - 2026-11-08
 
 ### Added

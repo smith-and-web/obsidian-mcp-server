@@ -48,7 +48,6 @@ import type {
   SearchMissingTagResult,
   AuditTagsResult,
   SearchOptions,
-  SearchResult,
   SearchFileResult,
   SearchMatch,
   BacklinkResult,
@@ -64,14 +63,24 @@ import type {
   FindReplaceFileResult,
   CompactKeyMap,
 } from '../types/index.js';
+import {
+  applySearchBudget,
+  estimateTokens,
+  outlineOf,
+  type BudgetedSearchResult,
+} from './budget.js';
 
 export class VaultManager {
   private vaultPath: string;
   private compactResponses: boolean;
+  private readOutlineTokens: number;
+  private searchBudgetTokens: number;
 
   constructor(vaultPath: string, options: VaultManagerOptions = {}) {
     this.vaultPath = vaultPath;
     this.compactResponses = options.compactResponses || false;
+    this.readOutlineTokens = options.readOutlineTokens || 0;
+    this.searchBudgetTokens = options.searchBudgetTokens || 0;
   }
 
   /**
@@ -172,7 +181,7 @@ export class VaultManager {
   // ============================================
 
   async readNote(notePath: string, options: ReadNoteOptions = {}): Promise<ReadNoteResult> {
-    const { frontmatterOnly = false } = options;
+    const { frontmatterOnly = false, full = false } = options;
     const fullPath = this._resolve(notePath);
     const content = await fs.readFile(fullPath, 'utf-8');
 
@@ -186,6 +195,22 @@ export class VaultManager {
       };
     }
 
+    const tokens = estimateTokens(content);
+    if (!full && this.readOutlineTokens > 0 && tokens > this.readOutlineTokens) {
+      const { frontmatter } = this.parseFrontmatter(content);
+      return {
+        path: notePath,
+        outline: true,
+        tokens,
+        frontmatter: frontmatter || null,
+        sections: outlineOf(content),
+        hint:
+          `This note is about ${tokens} tokens, over this server's ${this.readOutlineTokens}-token read limit, ` +
+          'so only its outline is returned. Read what you need with read-section (pass a heading exactly as ' +
+          "listed; it includes that heading's subsections), or call read-note with full: true for the whole note.",
+      };
+    }
+
     return { path: notePath, content };
   }
 
@@ -193,13 +218,13 @@ export class VaultManager {
     paths: string[],
     options: ReadNoteOptions = {}
   ): Promise<ReadMultipleNotesResult> {
-    const { frontmatterOnly = false } = options;
+    const { frontmatterOnly = false, full = false } = options;
     const results: ReadNoteResult[] = [];
     const errors: Array<{ path: string; error: string }> = [];
 
     for (const notePath of paths) {
       try {
-        const result = await this.readNote(notePath, { frontmatterOnly });
+        const result = await this.readNote(notePath, { frontmatterOnly, full });
         results.push(result);
       } catch (err) {
         errors.push({ path: notePath, error: (err as Error).message });
@@ -924,7 +949,7 @@ export class VaultManager {
   // Search Operations
   // ============================================
 
-  async searchVault(query: string, options: SearchOptions = {}): Promise<SearchResult> {
+  async searchVault(query: string, options: SearchOptions = {}): Promise<BudgetedSearchResult> {
     const {
       directory = '',
       searchContent = true,
@@ -932,7 +957,7 @@ export class VaultManager {
       caseSensitive = false,
       maxResults = 100,
       includeContext = true,
-      contextLines = 2,
+      contextLines = this.searchBudgetTokens > 0 ? 1 : 2,
     } = options;
 
     const results: SearchFileResult[] = [];
@@ -947,13 +972,16 @@ export class VaultManager {
       contextLines,
     });
 
-    return {
-      query,
-      options: { directory, searchContent, searchFilenames, caseSensitive },
-      totalMatches: results.reduce((sum, r) => sum + (r.matches ? r.matches.length : 1), 0),
-      filesMatched: results.length,
-      results,
-    };
+    return applySearchBudget(
+      {
+        query,
+        options: { directory, searchContent, searchFilenames, caseSensitive },
+        totalMatches: results.reduce((sum, r) => sum + (r.matches ? r.matches.length : 1), 0),
+        filesMatched: results.length,
+        results,
+      },
+      this.searchBudgetTokens
+    );
   }
 
   private async _searchDirectoryEnhanced(

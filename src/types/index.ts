@@ -18,6 +18,8 @@ export interface ParsedFrontmatter {
 // Note operations
 export interface ReadNoteOptions {
   frontmatterOnly?: boolean;
+  /** Return the whole note even when it is over the read outline limit. */
+  full?: boolean;
 }
 
 export interface ReadNoteResult {
@@ -26,6 +28,11 @@ export interface ReadNoteResult {
   hasFrontmatter?: boolean;
   frontmatter?: Frontmatter | null;
   raw?: string | null;
+  /** Set when the note was over the read outline limit and only its outline is returned. */
+  outline?: boolean;
+  tokens?: number;
+  sections?: Array<{ heading: string; line: number; tokens: number }>;
+  hint?: string;
 }
 
 export interface ReadMultipleNotesResult {
@@ -319,6 +326,10 @@ export interface FindReplaceResult {
 // VaultManager options
 export interface VaultManagerOptions {
   compactResponses?: boolean;
+  /** read-note returns an outline above this many tokens unless full: true (0 = off). */
+  readOutlineTokens?: number;
+  /** search-vault output is trimmed to about this many tokens (0 = off). */
+  searchBudgetTokens?: number;
 }
 
 // Compact key mapping

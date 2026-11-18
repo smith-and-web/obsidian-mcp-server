@@ -330,6 +330,8 @@ obsidian-mcp-server/
 | `PORT` | `3000` | Server port |
 | `VAULT_PATH` | `/vault` | Path to Obsidian vault |
 | `COMPACT_RESPONSES` | `false` | Enable minified response keys for 40-60% smaller responses |
+| `READ_OUTLINE_TOKENS` | `0` | When over 0, `read-note` and `read-multiple-notes` return an outline (frontmatter plus each heading with its token size) for notes larger than this many tokens (characters / 4), unless called with `full: true`. Agents then use `read-section`. 0 is off |
+| `SEARCH_VAULT_BUDGET_TOKENS` | `0` | When over 0, `search-vault` output is trimmed to about this many tokens: lines clipped at 300 characters, 5 matches per file, files beyond the budget omitted (`truncated`, `omittedFiles`, `hint`), and `contextLines` defaults to 1. Totals still describe the whole scan. 0 is off |
 | `API_KEY` | *(none)* | API key for authentication. When set, requires a Bearer token (compared in constant time) |
 | `REQUIRE_TAILSCALE_LOGIN` | *(none)* | Optional. Require the `Tailscale-User-Login` header (set by `tailscale serve`) to equal this login. Only trustworthy when the server is reachable solely through `tailscale serve` on loopback |
 | `SSE_KEEPALIVE_SECONDS` | `30` | Seconds between `: ping` SSE comments on `GET /sse` streams; `0` disables. Some clients drop a stream that has carried no bytes for about five minutes and reconnect without sending `initialize` again, which loses the session's client name |
