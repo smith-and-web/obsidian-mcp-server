@@ -378,7 +378,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: 'search-vault',
     description:
-      'Search notes in the vault with structured results including line numbers and context. Can search content, filenames, or both. Supports directory filtering. If the server has an output budget, long results are trimmed and marked truncated: narrow with directory or a more specific query.',
+      'Search notes in the vault with structured results including line numbers and context. For a known note title, use searchContent: false and searchFilenames: true, optionally with directory. Check filesMatched or the returned paths for filename hits; totalMatches counts content matches. If the server has an output budget, long results are trimmed and marked truncated: narrow with directory or a more specific query.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -386,7 +386,8 @@ export const toolDefinitions: ToolDefinition[] = [
         directory: { type: 'string', description: 'Limit search to specific directory (optional)' },
         searchContent: {
           type: 'boolean',
-          description: 'Search within file content (default: true)',
+          description:
+            'Search within file content (default: true). Set false for a filename-only lookup.',
         },
         searchFilenames: { type: 'boolean', description: 'Search in filenames (default: true)' },
         caseSensitive: { type: 'boolean', description: 'Case-sensitive search (default: false)' },
@@ -453,7 +454,8 @@ export const toolDefinitions: ToolDefinition[] = [
   },
   {
     name: 'append-to-section',
-    description: 'Append content to the end of a specific markdown section (under a heading)',
+    description:
+      'Append content to the end of a specific markdown section. Consecutive list items stay together, and a subsequent heading is separated by a blank line.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -508,7 +510,11 @@ export const toolDefinitions: ToolDefinition[] = [
             'The requestId of the search that led to this read, if any. Pass it when reading a note found by semantic-search, similar-notes or search-vault.',
         },
         path: { type: 'string', description: 'Path to the note' },
-        heading: { type: 'string', description: "Markdown heading (e.g., '### Thinking Style')" },
+        heading: {
+          type: 'string',
+          description:
+            "Full Markdown heading (e.g., '### Thinking Style') or unique heading text (e.g., 'Thinking Style').",
+        },
       },
       required: ['path', 'heading'],
     },
@@ -650,7 +656,7 @@ export function getToolDefinitions({
 const feedbackToolDefinition: ToolDefinition = {
   name: 'search-feedback',
   description:
-    'Record how useful a search was. Call once after answering from semantic-search, similar-notes or search-vault results: pass the requestId, a rating, and the paths you relied on. Use source "user" only when the user said the answer was right or wrong, with expectedPaths for the notes that should have been found.',
+    'Record how useful a search was. Call once after answering from semantic-search, similar-notes or search-vault results: pass the requestId, a rating (positive, negative, or neutral), and the paths you relied on. Use source "user" only when the user said the answer was right or wrong, with expectedPaths for the notes that should have been found.',
   inputSchema: {
     type: 'object',
     properties: {

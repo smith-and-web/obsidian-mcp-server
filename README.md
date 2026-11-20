@@ -234,7 +234,7 @@ Or connect directly to the SSE endpoint at `http://localhost:3001/sse` if the cl
 ### Search & Links
 | Tool | Description |
 |------|-------------|
-| `search-vault` | Full-text search with context |
+| `search-vault` | Search content with context, or look up a known title with `searchContent: false` and `searchFilenames: true`. For filename hits, check `filesMatched` or the returned paths. |
 | `get-backlinks` | Find notes linking to a note |
 | `find-broken-links` | Find unresolved wiki-links |
 | `find-replace` | Bulk find and replace |
@@ -255,8 +255,8 @@ See [Semantic search](#semantic-search) for setup.
 ### Section Operations
 | Tool | Description |
 |------|-------------|
-| `read-section` | Read content under a heading |
-| `append-to-section` | Append to a section |
+| `read-section` | Read a section using a full Markdown heading, such as `## Open items`, or its text when unique |
+| `append-to-section` | Append to a section, keeping consecutive list items together and a blank line before the next heading |
 | `replace-section` | Replace section content |
 | `append-to-file` | Append to end of file |
 | `insert-at-marker` | Insert at a text marker |
