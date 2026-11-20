@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-11-20
+
+### Fixed
+
+- Keep appended list items contiguous and retain a blank line before the next heading when appending to or replacing a section.
+- Match unique bare heading text in `read-section` and report ambiguous matches with line numbers. Section tools and note outlines skip headings inside fenced code.
+
+### Changed
+
+- Document the existing filename-only search switches and valid feedback ratings in the MCP tool descriptions.
+
 ## [1.18.0] - 2026-11-18
 
 ### Added
