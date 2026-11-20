@@ -14,10 +14,6 @@ import {
 } from './frontmatter.js';
 import { stripTableEscape } from '../index/chunker.js';
 
-/** Escape text for use inside a RegExp, so headings like "Status (2026-10-14)" match literally. */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 import type {
   Frontmatter,
   VaultManagerOptions,
@@ -57,7 +53,6 @@ import type {
   InsertAtMarkerResult,
   ReadSectionResult,
   ListHeadingsResult,
-  HeadingInfo,
   FindReplaceOptions,
   FindReplaceResult,
   FindReplaceFileResult,
@@ -69,6 +64,7 @@ import {
   outlineOf,
   type BudgetedSearchResult,
 } from './budget.js';
+import { markdownHeadings, sectionRange, writeSection } from './sections.js';
 
 export class VaultManager {
   private vaultPath: string;
@@ -1327,30 +1323,9 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
-    const match = fileContent.match(headingRegex);
-
-    if (!match) {
-      throw new Error(`Heading "${heading}" not found in ${notePath}`);
-    }
-
-    const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
-    const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
-
-    const afterHeading = fileContent.slice(match.index! + match[0].length);
-    const nextMatch = afterHeading.match(nextHeadingRegex);
-
-    let insertPos: number;
-    if (nextMatch) {
-      insertPos = match.index! + match[0].length + nextMatch.index!;
-    } else {
-      insertPos = fileContent.length;
-    }
-
-    const newContent =
-      fileContent.slice(0, insertPos) + '\n' + content + '\n' + fileContent.slice(insertPos);
-
-    await fs.writeFile(fullPath, newContent, 'utf-8');
+    const range = sectionRange(fileContent, heading, notePath);
+    const updated = writeSection(fileContent, range, content, 'append');
+    if (updated !== fileContent) await fs.writeFile(fullPath, updated, 'utf-8');
     return { path: notePath, heading, appended: true };
   }
 
@@ -1362,34 +1337,9 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
-    const match = fileContent.match(headingRegex);
-
-    if (!match) {
-      throw new Error(`Heading "${heading}" not found in ${notePath}`);
-    }
-
-    const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
-    const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
-
-    const afterHeading = fileContent.slice(match.index! + match[0].length);
-    const nextMatch = afterHeading.match(nextHeadingRegex);
-
-    let sectionEnd: number;
-    if (nextMatch) {
-      sectionEnd = match.index! + match[0].length + nextMatch.index!;
-    } else {
-      sectionEnd = fileContent.length;
-    }
-
-    const updatedContent =
-      fileContent.slice(0, match.index! + match[0].length) +
-      '\n' +
-      newContent +
-      '\n' +
-      fileContent.slice(sectionEnd);
-
-    await fs.writeFile(fullPath, updatedContent, 'utf-8');
+    const range = sectionRange(fileContent, heading, notePath);
+    const updated = writeSection(fileContent, range, newContent, 'replace');
+    if (updated !== fileContent) await fs.writeFile(fullPath, updated, 'utf-8');
     return { path: notePath, heading, replaced: true };
   }
 
@@ -1425,54 +1375,17 @@ export class VaultManager {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = new RegExp(`^${escapeRegExp(heading)}\\s*$`, 'm');
-    const match = fileContent.match(headingRegex);
-
-    if (!match) {
-      throw new Error(`Heading "${heading}" not found in ${notePath}`);
-    }
-
-    const headingLevel = (heading.match(/^#+/) || ['#'])[0].length;
-    const nextHeadingRegex = new RegExp(`^#{1,${headingLevel}}\\s+.+$`, 'm');
-
-    const afterHeading = fileContent.slice(match.index! + match[0].length);
-    const nextMatch = afterHeading.match(nextHeadingRegex);
-
-    let sectionEnd: number;
-    if (nextMatch) {
-      sectionEnd = match.index! + match[0].length + nextMatch.index!;
-    } else {
-      sectionEnd = fileContent.length;
-    }
-
-    const sectionContent = fileContent.slice(match.index! + match[0].length, sectionEnd).trim();
-
-    return { path: notePath, heading, content: sectionContent };
+    const { start, end } = sectionRange(fileContent, heading, notePath, true);
+    return { path: notePath, heading, content: fileContent.slice(start, end).trim() };
   }
 
   async listHeadings(notePath: string, level: number | null = null): Promise<ListHeadingsResult> {
     const fullPath = this._resolve(notePath);
     const fileContent = await fs.readFile(fullPath, 'utf-8');
 
-    const headingRegex = /^(#{1,6})\s+(.+)$/gm;
-    const headings: HeadingInfo[] = [];
-    let match;
-
-    while ((match = headingRegex.exec(fileContent)) !== null) {
-      const headingLevel = match[1].length;
-      const headingText = match[2].trim();
-
-      if (level === null || headingLevel === level) {
-        const beforeMatch = fileContent.slice(0, match.index);
-        const lineNumber = (beforeMatch.match(/\n/g) || []).length + 1;
-        headings.push({
-          level: headingLevel,
-          text: headingText,
-          line: lineNumber,
-        });
-      }
-    }
-
+    const headings = markdownHeadings(fileContent)
+      .filter(heading => level === null || heading.level === level)
+      .map(({ level, text, line }) => ({ level, text, line }));
     return { path: notePath, headings };
   }
 

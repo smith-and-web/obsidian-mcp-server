@@ -9,6 +9,7 @@
  * Tokens are estimated as characters / 4.
  */
 import type { SearchFileResult, SearchMatch, SearchResult } from '../types/index.js';
+import { markdownHeadings } from './sections.js';
 
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
 
@@ -34,24 +35,7 @@ export interface OutlineSection {
 
 /** Headings of a note with the size of each heading's subtree. Fenced code is skipped. */
 export function outlineOf(content: string): OutlineSection[] {
-  const lines = content.split('\n');
-  const heads: Array<{ heading: string; level: number; line: number; offset: number }> = [];
-  let offset = 0;
-  let fence: string | null = null;
-  let inFrontmatter = lines[0] === '---';
-  for (let i = 0; i < lines.length; i++) {
-    const text = lines[i];
-    if (inFrontmatter && i > 0 && text === '---') inFrontmatter = false;
-    else if (!inFrontmatter) {
-      const f = text.match(/^\s*(```|~~~)/);
-      if (f) fence = fence === null ? f[1] : fence === f[1] ? null : fence;
-      else if (fence === null) {
-        const h = text.match(/^(#{1,6})\s+\S/);
-        if (h) heads.push({ heading: text.trimEnd(), level: h[1].length, line: i + 1, offset });
-      }
-    }
-    offset += text.length + 1;
-  }
+  const heads = markdownHeadings(content);
   return heads.map((h, i) => {
     const next = heads.slice(i + 1).find(n => n.level <= h.level);
     const end = next ? next.offset : content.length;
